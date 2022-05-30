@@ -99,6 +99,15 @@ replace (
 	// This package is archived and is replaced by golang-jwt/jwt
 	github.com/dgrijalva/jwt-go => github.com/golang-jwt/jwt v3.2.2+incompatible
 
+	// Fix vulnerabilities: CVE-2022-29153, CVE-2022-24687, CVE-2022-29153 and CVE-2022-24687
+	github.com/hashicorp/consul => github.com/hashicorp/consul v1.12.1
+
+	// Fix vulnerabilities: CVE-2022-29162
+	github.com/opencontainers/runc => github.com/opencontainers/runc v1.1.2
+
+	// Fix non CVE vulnerabilities
+	github.com/pkg/sftp => github.com/pkg/sftp v1.13.4
+
 	// Explicitly use newest version of cluster-api, instead of one brought
 	// from cluster-api-provider-gcp@v1.0.2
 	sigs.k8s.io/cluster-api => sigs.k8s.io/cluster-api v1.1.3
