@@ -26,15 +26,15 @@ type GCPClusterClient interface {
 }
 
 type GCPClusterReconciler struct {
-	logger    logr.Logger
-	client    GCPClusterClient
+	logger         logr.Logger
+	client         GCPClusterClient
 	firewallClient *firewall.Client
 }
 
 func NewGCPClusterReconciler(logger logr.Logger, client GCPClusterClient, firewallClient *firewall.Client) *GCPClusterReconciler {
 	return &GCPClusterReconciler{
-		logger:    logger,
-		client:    client,
+		logger:         logger,
+		client:         client,
 		firewallClient: firewallClient,
 	}
 }
