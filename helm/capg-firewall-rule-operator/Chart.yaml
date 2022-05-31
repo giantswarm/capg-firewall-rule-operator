@@ -1,0 +1,9 @@
+name: capg-firewall-rule-operator
+version: [[ .Version ]]
+description: "Operator for managing extra firewall rules for CAPG clusters"
+appVersion: "[[ .AppVersion ]]"
+home: "https://github.com/giantswarm/capg-firewall-rule-operator"
+apiVersion: v1
+annotations:
+  application.giantswarm.io/team: "phoenix"
+  config.giantswarm.io/version: 1.x.x
