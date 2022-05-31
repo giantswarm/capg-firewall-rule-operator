@@ -90,14 +90,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	service, err := gcpcompute.NewFirewallPoliciesRESTClient(context.Background())
+	gcpFwClient, err := gcpcompute.NewFirewallPoliciesRESTClient(context.Background())
 	if err != nil {
 		setupLog.Error(err, "failed to create Cloud Firewall Policies client")
 		os.Exit(1)
 	}
+	defer gcpFwClient.Close()
 
 	client := k8sclient.NewGCPCluster(mgr.GetClient())
-	firewallClient := firewall.NewClient(service, mgr.GetClient())
+	firewallClient := firewall.NewClient(gcpFwClient, mgr.GetClient())
+
 	controller := controllers.NewGCPClusterReconciler(mgr.GetLogger(), client, firewallClient)
 	err = controller.SetupWithManager(mgr)
 	if err != nil {
