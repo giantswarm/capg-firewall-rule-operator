@@ -3,6 +3,7 @@ package firewall
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	compute "cloud.google.com/go/compute/apiv1"
 	"github.com/giantswarm/microerror"
@@ -59,8 +60,14 @@ func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GC
 		return microerror.Mask(err)
 	}
 
-	if err = op.Wait(ctx); err != nil {
-		return microerror.Mask(err)
+	err = op.Wait(ctx)
+
+	if err != nil {
+		if isAlreadyExistError(err) {
+			// pass thru, resource already exists
+		} else {
+			return microerror.Mask(err)
+		}
 	}
 
 	return nil
@@ -95,5 +102,9 @@ func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GC
 }
 
 func bastionFirewallPolicyRuleName(clusterName string) string {
-	return fmt.Sprintf("%s-allow-bastion-ssh", clusterName)
+	return fmt.Sprintf("allow-%s-bastion-ssh", clusterName)
+}
+
+func isAlreadyExistError(err error) bool {
+	return strings.Contains(err.Error(), "already exists")
 }
