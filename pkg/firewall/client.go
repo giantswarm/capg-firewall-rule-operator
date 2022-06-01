@@ -93,8 +93,13 @@ func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GC
 	if err != nil {
 		return microerror.Mask(err)
 	}
+	err = op.Wait(ctx)
 
-	if err = op.Wait(ctx); err != nil {
+	if isNotFoundError(err) {
+		// pass thru, resource is already deleted
+
+	} else if err != nil {
+
 		return microerror.Mask(err)
 	}
 
@@ -107,4 +112,8 @@ func bastionFirewallPolicyRuleName(clusterName string) string {
 
 func isAlreadyExistError(err error) bool {
 	return strings.Contains(err.Error(), "already exists")
+}
+
+func isNotFoundError(err error) bool {
+	return strings.Contains(err.Error(), "was not found")
 }
