@@ -90,7 +90,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	gcpFwClient, err := gcpcompute.NewFirewallPoliciesRESTClient(context.Background())
+	gcpFwClient, err := gcpcompute.NewFirewallsRESTClient(context.Background())
 	if err != nil {
 		setupLog.Error(err, "failed to create Cloud Firewall Policies client")
 		os.Exit(1)

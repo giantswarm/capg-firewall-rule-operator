@@ -7,16 +7,17 @@ import (
 	compute "cloud.google.com/go/compute/apiv1"
 	"github.com/giantswarm/microerror"
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
+	"google.golang.org/protobuf/proto"
 	capg "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type Client struct {
-	fwService *compute.FirewallPoliciesClient
+	fwService *compute.FirewallsClient
 	k8sClient client.Client
 }
 
-func NewClient(fwService *compute.FirewallPoliciesClient, k8sClient client.Client) *Client {
+func NewClient(fwService *compute.FirewallsClient, k8sClient client.Client) *Client {
 	return &Client{
 		fwService: fwService,
 		k8sClient: k8sClient,
@@ -24,52 +25,41 @@ func NewClient(fwService *compute.FirewallPoliciesClient, k8sClient client.Clien
 }
 
 const (
-	ActionAllow      = "allow"
-	DirectionIngress = "INGRESS"
-	ProtocolTCP      = "tcp"
-	EffectiveTag     = "EFFECTIVE"
-	SourceIPAll      = "0.0.0.0/0"
-	PortSSH          = "22"
+	ProtocolTCP = "tcp"
+	PortSSH     = "22"
 )
 
 func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error {
-	// TODO
-	action := ActionAllow
-	direction := DirectionIngress
-	effectiveTag := EffectiveTag
+	fwName := bastionFirewallPolicyRuleName(cluster.Name)
 	ipProtocol := ProtocolTCP
 
-	description := "allow port 22 for SSH to"
-	priority := int32(1000)
 	tagName := fmt.Sprintf("%s-bastion", cluster.GetName())
 
-	req := &computepb.AddRuleFirewallPolicyRequest{
-		FirewallPolicy: bastionFirewallPolicyRuleName(cluster.Name),
-		FirewallPolicyRuleResource: &computepb.FirewallPolicyRule{
-			Action:      &action,
-			Description: &description,
-			Direction:   &direction,
-			Match: &computepb.FirewallPolicyRuleMatcher{
-				SrcIpRanges: []string{SourceIPAll},
-				Layer4Configs: []*computepb.FirewallPolicyRuleMatcherLayer4Config{
-					{
-						IpProtocol: &ipProtocol,
-						Ports:      []string{PortSSH},
-					},
-				},
-			},
-			Priority: &priority,
-			TargetSecureTags: []*computepb.FirewallPolicyRuleSecureTag{
-				{
-					Name:  &tagName,
-					State: &effectiveTag,
-				},
+	rule := &computepb.Firewall{
+		Allowed: []*computepb.Allowed{
+			{
+				IPProtocol: &ipProtocol,
+				Ports:      []string{PortSSH},
 			},
 		},
+		Description: proto.String("allow port 22 for SSH to"),
+		Direction:   proto.String(computepb.Firewall_INGRESS.String()),
+		Name:        &fwName,
+		Network:     cluster.Status.Network.SelfLink,
+		TargetTags:  []string{tagName},
 	}
 
-	_, err := c.fwService.AddRule(ctx, req)
+	req := &computepb.InsertFirewallRequest{
+		Project:          cluster.Spec.Project,
+		FirewallResource: rule,
+	}
+
+	op, err := c.fwService.Insert(ctx, req)
 	if err != nil {
+		return microerror.Mask(err)
+	}
+
+	if err = op.Wait(ctx); err != nil {
 		return microerror.Mask(err)
 	}
 
@@ -82,18 +72,22 @@ func (c *Client) AssignBastionFirewallRule(ctx context.Context, cluster *capg.GC
 }
 
 func (c *Client) DisassociateBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error {
-	// TODO
 
 	return nil
 }
 
 func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error {
-	req := &computepb.DeleteFirewallPolicyRequest{
-		FirewallPolicy: bastionFirewallPolicyRuleName(cluster.Name),
+	req := &computepb.DeleteFirewallRequest{
+		Project:  cluster.Spec.Project,
+		Firewall: bastionFirewallPolicyRuleName(cluster.Name),
 	}
 
-	_, err := c.fwService.Delete(ctx, req)
+	op, err := c.fwService.Delete(ctx, req)
 	if err != nil {
+		return microerror.Mask(err)
+	}
+
+	if err = op.Wait(ctx); err != nil {
 		return microerror.Mask(err)
 	}
 
