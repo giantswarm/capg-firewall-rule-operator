@@ -57,7 +57,12 @@ func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GC
 
 	op, err := c.fwService.Insert(ctx, req)
 	if err != nil {
-		return microerror.Mask(err)
+		if isAlreadyExistError(err) {
+			// pass thru, resource already exists
+			return nil
+		} else {
+			return microerror.Mask(err)
+		}
 	}
 
 	err = op.Wait(ctx)
