@@ -90,16 +90,16 @@ func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GC
 	}
 
 	op, err := c.fwService.Delete(ctx, req)
-	if err != nil {
+	if isNotFoundError(err) {
+		// pass thru, resource is already deleted
+	} else if err != nil {
 		return microerror.Mask(err)
 	}
 	err = op.Wait(ctx)
 
 	if isNotFoundError(err) {
 		// pass thru, resource is already deleted
-
 	} else if err != nil {
-
 		return microerror.Mask(err)
 	}
 
