@@ -75,7 +75,9 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	logger := zap.New(zap.UseFlagOptions(&opts))
+
+	ctrl.SetLogger(logger)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -98,7 +100,7 @@ func main() {
 	defer gcpFwClient.Close()
 
 	client := k8sclient.NewGCPCluster(mgr.GetClient())
-	firewallClient := firewall.NewClient(gcpFwClient, mgr.GetClient())
+	firewallClient := firewall.NewClient(gcpFwClient, mgr.GetClient(), logger)
 
 	controller := controllers.NewGCPClusterReconciler(mgr.GetLogger(), client, firewallClient)
 	err = controller.SetupWithManager(mgr)
