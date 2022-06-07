@@ -7,6 +7,7 @@ import (
 
 	compute "cloud.google.com/go/compute/apiv1"
 	"github.com/giantswarm/microerror"
+	"github.com/go-logr/logr"
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
 	"google.golang.org/protobuf/proto"
 	capg "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
@@ -16,12 +17,14 @@ import (
 type Client struct {
 	fwService *compute.FirewallsClient
 	k8sClient client.Client
+	logger    logr.Logger
 }
 
-func NewClient(fwService *compute.FirewallsClient, k8sClient client.Client) *Client {
+func NewClient(fwService *compute.FirewallsClient, k8sClient client.Client, logger logr.Logger) *Client {
 	return &Client{
 		fwService: fwService,
 		k8sClient: k8sClient,
+		logger:    logger,
 	}
 }
 
@@ -35,6 +38,7 @@ func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GC
 	ipProtocol := ProtocolTCP
 
 	tagName := fmt.Sprintf("%s-bastion", cluster.GetName())
+	c.logger.Info(fmt.Sprintf("Creating firewall rule for bastion %s", tagName))
 
 	rule := &computepb.Firewall{
 		Allowed: []*computepb.Allowed{
@@ -75,20 +79,14 @@ func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GC
 		}
 	}
 
-	return nil
-}
-
-func (c *Client) AssignBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error {
-
-	return nil
-}
-
-func (c *Client) DisassociateBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error {
-
+	c.logger.Info(fmt.Sprintf("Created firewall rule for bastion %s", tagName))
 	return nil
 }
 
 func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error {
+	name := fmt.Sprintf("%s-bastion", cluster.GetName())
+	c.logger.Info(fmt.Sprintf("Deleting firewall rule for bastion %s", name))
+
 	req := &computepb.DeleteFirewallRequest{
 		Project:  cluster.Spec.Project,
 		Firewall: bastionFirewallPolicyRuleName(cluster.Name),
@@ -109,6 +107,7 @@ func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GC
 		return microerror.Mask(err)
 	}
 
+	c.logger.Info(fmt.Sprintf("Deleted firewall rule for bastion %s", name))
 	return nil
 }
 
