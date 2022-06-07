@@ -75,7 +75,9 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	logger := zap.New(zap.UseFlagOptions(&opts))
+
+	ctrl.SetLogger(logger)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -90,14 +92,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	service, err := gcpcompute.NewFirewallPoliciesRESTClient(context.Background())
+	gcpFwClient, err := gcpcompute.NewFirewallsRESTClient(context.Background())
 	if err != nil {
 		setupLog.Error(err, "failed to create Cloud Firewall Policies client")
 		os.Exit(1)
 	}
+	defer gcpFwClient.Close()
 
 	client := k8sclient.NewGCPCluster(mgr.GetClient())
-	firewallClient := firewall.NewClient(service, mgr.GetClient())
+	firewallClient := firewall.NewClient(gcpFwClient, mgr.GetClient(), logger)
+
 	controller := controllers.NewGCPClusterReconciler(mgr.GetLogger(), client, firewallClient)
 	err = controller.SetupWithManager(mgr)
 	if err != nil {

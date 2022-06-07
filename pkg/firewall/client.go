@@ -2,66 +2,120 @@ package firewall
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	compute "cloud.google.com/go/compute/apiv1"
+	"github.com/giantswarm/microerror"
+	"github.com/go-logr/logr"
+	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
+	"google.golang.org/protobuf/proto"
 	capg "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
+	"sigs.k8s.io/cluster-api-provider-gcp/cloud/gcperrors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type Client struct {
-	fwService *compute.FirewallPoliciesClient
+	fwService *compute.FirewallsClient
 	k8sClient client.Client
+	logger    logr.Logger
 }
 
-func NewClient(fwService *compute.FirewallPoliciesClient, k8sClient client.Client) *Client {
+func NewClient(fwService *compute.FirewallsClient, k8sClient client.Client, logger logr.Logger) *Client {
 	return &Client{
 		fwService: fwService,
 		k8sClient: k8sClient,
+		logger:    logger,
 	}
 }
 
+const (
+	ProtocolTCP = "tcp"
+	PortSSH     = "22"
+)
+
 func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error {
-	// TODO
+	fwName := bastionFirewallPolicyRuleName(cluster.Name)
+	ipProtocol := ProtocolTCP
 
-	return nil
-}
+	tagName := fmt.Sprintf("%s-bastion", cluster.GetName())
+	c.logger.Info(fmt.Sprintf("Creating firewall rule for bastion %s", tagName))
 
-func (c *Client) AssignBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error {
-	// TODO
-	/*
-		_, err := c.dnsService.ResourceRecordSets.Create(cluster.Spec.Project, cluster.Name, record).
-			Context(ctx).
-			Do()
+	rule := &computepb.Firewall{
+		Allowed: []*computepb.Allowed{
+			{
+				IPProtocol: &ipProtocol,
+				Ports:      []string{PortSSH},
+			},
+		},
+		Description: proto.String("allow port 22 for SSH to"),
+		Direction:   proto.String(computepb.Firewall_INGRESS.String()),
+		Name:        &fwName,
+		Network:     cluster.Status.Network.SelfLink,
+		TargetTags:  []string{tagName},
+	}
 
-		if hasHttpCode(err, http.StatusConflict) {
+	req := &computepb.InsertFirewallRequest{
+		Project:          cluster.Spec.Project,
+		FirewallResource: rule,
+	}
+
+	op, err := c.fwService.Insert(ctx, req)
+	if err != nil {
+		if isAlreadyExistError(err) {
+			// pass thru, resource already exists
 			return nil
+		} else {
+			return microerror.Mask(err)
 		}
-		return microerror.Mask(err)
+	}
 
-	*/
-	return nil
-}
+	err = op.Wait(ctx)
 
-func (c *Client) DisassociateBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error {
-	// TODO
+	if err != nil {
+		if isAlreadyExistError(err) {
+			// pass thru, resource already exists
+		} else {
+			return microerror.Mask(err)
+		}
+	}
 
+	c.logger.Info(fmt.Sprintf("Created firewall rule for bastion %s", tagName))
 	return nil
 }
 
 func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error {
-	// TODO
+	name := fmt.Sprintf("%s-bastion", cluster.GetName())
+	c.logger.Info(fmt.Sprintf("Deleting firewall rule for bastion %s", name))
+
+	req := &computepb.DeleteFirewallRequest{
+		Project:  cluster.Spec.Project,
+		Firewall: bastionFirewallPolicyRuleName(cluster.Name),
+	}
+
+	op, err := c.fwService.Delete(ctx, req)
+	if gcperrors.IsNotFound(err) {
+		// pass thru, resource is already deleted
+		return nil
+	} else if err != nil {
+		return microerror.Mask(err)
+	}
+	err = op.Wait(ctx)
+
+	if gcperrors.IsNotFound(err) {
+		// pass thru, resource is already deleted
+	} else if err != nil {
+		return microerror.Mask(err)
+	}
+
+	c.logger.Info(fmt.Sprintf("Deleted firewall rule for bastion %s", name))
 	return nil
 }
 
-/*
-func hasHttpCode(err error, statusCode int) bool {
-	var googleErr *googleapi.Error
-	if errors.As(err, &googleErr) {
-		if googleErr.Code == statusCode {
-			return true
-		}
-	}
-
-	return false
+func bastionFirewallPolicyRuleName(clusterName string) string {
+	return fmt.Sprintf("allow-%s-bastion-ssh", clusterName)
 }
-*/
+
+func isAlreadyExistError(err error) bool {
+	return strings.Contains(err.Error(), "already exists")
+}

@@ -93,21 +93,11 @@ func (r *GCPClusterReconciler) reconcileNormal(ctx context.Context, gcpCluster *
 		return ctrl.Result{}, microerror.Mask(err)
 	}
 
-	err = r.firewallClient.AssignBastionFirewallRule(ctx, gcpCluster)
-	if err != nil {
-		return ctrl.Result{}, microerror.Mask(err)
-	}
-
 	return ctrl.Result{}, nil
 }
 
 func (r *GCPClusterReconciler) reconcileDelete(ctx context.Context, gcpCluster *capg.GCPCluster) (ctrl.Result, error) {
-	err := r.firewallClient.DisassociateBastionFirewallRule(ctx, gcpCluster)
-	if err != nil {
-		return ctrl.Result{}, microerror.Mask(err)
-	}
-
-	err = r.firewallClient.DeleteBastionFirewallRule(ctx, gcpCluster)
+	err := r.firewallClient.DeleteBastionFirewallRule(ctx, gcpCluster)
 	if err != nil {
 		return ctrl.Result{}, microerror.Mask(err)
 	}

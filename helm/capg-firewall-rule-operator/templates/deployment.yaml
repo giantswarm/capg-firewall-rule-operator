@@ -32,8 +32,6 @@ spec:
               value: /home/.gcp/credentials
           command:
             - /manager
-          args:
-            - --gcp-project={{ .Values.gcpProject }}
           resources:
             requests:
               cpu: 100m
