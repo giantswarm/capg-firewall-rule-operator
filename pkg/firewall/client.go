@@ -11,7 +11,6 @@ import (
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
 	"google.golang.org/protobuf/proto"
 	capg "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
-	"sigs.k8s.io/cluster-api-provider-gcp/cloud/gcperrors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -94,7 +93,7 @@ func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GC
 	}
 
 	op, err := c.fwService.Delete(ctx, req)
-	if gcperrors.IsNotFound(err) {
+	if isNotFoundError(err) {
 		// pass thru, resource is already deleted
 		return nil
 	} else if err != nil {
@@ -102,7 +101,7 @@ func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GC
 	}
 	err = op.Wait(ctx)
 
-	if gcperrors.IsNotFound(err) {
+	if isNotFoundError(err) {
 		// pass thru, resource is already deleted
 	} else if err != nil {
 		return microerror.Mask(err)
@@ -118,4 +117,8 @@ func bastionFirewallPolicyRuleName(clusterName string) string {
 
 func isAlreadyExistError(err error) bool {
 	return strings.Contains(err.Error(), "already exists")
+}
+
+func isNotFoundError(err error) bool {
+	return strings.Contains(err.Error(), "was not found")
 }
