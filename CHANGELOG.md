@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Use right timestamp format in the logger.
 
+### Changed
+
+- Wrap all errors with microerror.
+
 ## [0.1.1] - 2022-06-07
 
 ## [0.1.0] - 2022-06-07

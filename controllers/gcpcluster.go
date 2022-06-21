@@ -47,6 +47,7 @@ func (r *GCPClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	var result ctrl.Result
 	log := r.logger.WithValues("gcpcluster", req.NamespacedName)
 	log.Info("Reconciling")
 	defer log.Info("Done reconciling")
@@ -76,10 +77,20 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if !gcpCluster.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(ctx, gcpCluster)
+		result, err = r.reconcileDelete(ctx, gcpCluster)
+		if err != nil {
+			return ctrl.Result{}, microerror.Mask(err)
+		}
+
+		return result, nil
 	}
 
-	return r.reconcileNormal(ctx, gcpCluster)
+	result, err = r.reconcileNormal(ctx, gcpCluster)
+	if err != nil {
+		return ctrl.Result{}, microerror.Mask(err)
+	}
+
+	return result, nil
 }
 
 func (r *GCPClusterReconciler) reconcileNormal(ctx context.Context, gcpCluster *capg.GCPCluster) (ctrl.Result, error) {
