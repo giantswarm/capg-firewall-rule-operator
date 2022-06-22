@@ -115,7 +115,6 @@ func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GC
 	logger.Info("Deleted firewall rule for bastion")
 	return nil
 }
-}
 
 func bastionFirewallPolicyRuleName(clusterName string) string {
 	return fmt.Sprintf("allow-%s-bastion-ssh", clusterName)
