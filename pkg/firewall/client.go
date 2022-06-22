@@ -125,5 +125,5 @@ func isAlreadyExistError(err error) bool {
 }
 
 func isNotFoundError(err error) bool {
-	return strings.Contains(err.Error(), "was not found")
+	return strings.Contains(err.Error(), "404")
 }
