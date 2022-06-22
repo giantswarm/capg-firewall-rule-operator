@@ -24,6 +24,7 @@ import (
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	gcpcompute "cloud.google.com/go/compute/apiv1"
+	"go.uber.org/zap/zapcore"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -38,7 +39,7 @@ import (
 	"github.com/giantswarm/capg-firewall-rule-operator/controllers"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/k8sclient"
-	//+kubebuilder:scaffold:imports
+	// +kubebuilder:scaffold:imports
 )
 
 var (
@@ -51,7 +52,7 @@ func init() {
 	utilruntime.Must(capg.AddToScheme(scheme))
 	utilruntime.Must(capi.AddToScheme(scheme))
 
-	//+kubebuilder:scaffold:scheme
+	// +kubebuilder:scaffold:scheme
 }
 
 func main() {
@@ -71,6 +72,7 @@ func main() {
 
 	opts := zap.Options{
 		Development: true,
+		TimeEncoder: zapcore.RFC3339TimeEncoder,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -109,7 +111,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	//+kubebuilder:scaffold:builder
+	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
