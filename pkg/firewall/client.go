@@ -11,7 +11,6 @@ import (
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
 	"google.golang.org/protobuf/proto"
 	capg "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
-	"sigs.k8s.io/cluster-api-provider-gcp/cloud/gcperrors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -39,7 +38,8 @@ func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GC
 	ipProtocol := ProtocolTCP
 
 	tagName := fmt.Sprintf("%s-bastion", cluster.GetName())
-	c.logger.Info(fmt.Sprintf("Creating firewall rule for bastion %s", tagName))
+	logger := c.logger.WithValues("name", tagName)
+	logger.Info("Creating firewall rule for bastion")
 
 	rule := &computepb.Firewall{
 		Allowed: []*computepb.Allowed{
@@ -80,13 +80,14 @@ func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GC
 		}
 	}
 
-	c.logger.Info(fmt.Sprintf("Created firewall rule for bastion %s", tagName))
+	logger.Info("Created firewall rule for bastion")
 	return nil
 }
 
 func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error {
 	name := fmt.Sprintf("%s-bastion", cluster.GetName())
-	c.logger.Info(fmt.Sprintf("Deleting firewall rule for bastion %s", name))
+	logger := c.logger.WithValues("name", name)
+	logger.Info("Deleting firewall rule for bastion")
 
 	req := &computepb.DeleteFirewallRequest{
 		Project:  cluster.Spec.Project,
@@ -94,21 +95,24 @@ func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GC
 	}
 
 	op, err := c.fwService.Delete(ctx, req)
-	if gcperrors.IsNotFound(err) {
+
+	if isNotFoundError(err) {
 		// pass thru, resource is already deleted
+		logger.Info("Firewall rule for bastion is already deleted")
+
 		return nil
 	} else if err != nil {
 		return errors.WithStack(err)
 	}
 	err = op.Wait(ctx)
 
-	if gcperrors.IsNotFound(err) {
+	if isNotFoundError(err) {
 		// pass thru, resource is already deleted
 	} else if err != nil {
 		return errors.WithStack(err)
 	}
 
-	c.logger.Info(fmt.Sprintf("Deleted firewall rule for bastion %s", name))
+	logger.Info("Deleted firewall rule for bastion")
 	return nil
 }
 
@@ -118,4 +122,8 @@ func bastionFirewallPolicyRuleName(clusterName string) string {
 
 func isAlreadyExistError(err error) bool {
 	return strings.Contains(err.Error(), "already exists")
+}
+
+func isNotFoundError(err error) bool {
+	return strings.Contains(err.Error(), "404")
 }
