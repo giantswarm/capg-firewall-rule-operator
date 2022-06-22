@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	compute "cloud.google.com/go/compute/apiv1"
-	"github.com/giantswarm/microerror"
 	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
 	"google.golang.org/protobuf/proto"
 	capg "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
@@ -66,7 +66,7 @@ func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GC
 			// pass thru, resource already exists
 			return nil
 		} else {
-			return microerror.Mask(err)
+			return errors.WithStack(err)
 		}
 	}
 
@@ -76,7 +76,7 @@ func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GC
 		if isAlreadyExistError(err) {
 			// pass thru, resource already exists
 		} else {
-			return microerror.Mask(err)
+			return errors.WithStack(err)
 		}
 	}
 
@@ -102,14 +102,14 @@ func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GC
 
 		return nil
 	} else if err != nil {
-		return microerror.Mask(err)
+		return errors.WithStack(err)
 	}
 	err = op.Wait(ctx)
 
 	if isNotFoundError(err) {
 		// pass thru, resource is already deleted
 	} else if err != nil {
-		return microerror.Mask(err)
+		return errors.WithStack(err)
 	}
 
 	logger.Info("Deleted firewall rule for bastion")
