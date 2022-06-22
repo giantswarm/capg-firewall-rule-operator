@@ -85,29 +85,42 @@ func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GC
 
 func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error {
 	name := fmt.Sprintf("%s-bastion", cluster.GetName())
-	c.logger.Info(fmt.Sprintf("Deleting firewall rule for bastion %s", name))
+	logger := c.logger.WithValues("name", name)
+	logger.Info(fmt.Sprintf("Deleting firewall rule for bastion %s", name))
 
 	req := &computepb.DeleteFirewallRequest{
 		Project:  cluster.Spec.Project,
 		Firewall: bastionFirewallPolicyRuleName(cluster.Name),
 	}
+	logger.Info("DEBUG: prepared request")
 
 	op, err := c.fwService.Delete(ctx, req)
+	logger.Info("DEBUG: executed delete op")
+
 	if isNotFoundError(err) {
 		// pass thru, resource is already deleted
+		logger.Info("DEBUG: error is not found after deleted")
+
 		return nil
 	} else if err != nil {
+		logger.Info("DEBUG: error is different after deleted", "error", err.Error())
+
 		return microerror.Mask(err)
 	}
+	logger.Info("DEBUG: preparing op.wait")
 	err = op.Wait(ctx)
 
 	if isNotFoundError(err) {
 		// pass thru, resource is already deleted
+		logger.Info("DEBUG: error is not found, after wait")
+
 	} else if err != nil {
+		logger.Info("DEBUG: error is different after op wait", "error", err.Error())
+
 		return microerror.Mask(err)
 	}
 
-	c.logger.Info(fmt.Sprintf("Deleted firewall rule for bastion %s", name))
+	logger.Info("Deleted firewall rule for bastion")
 	return nil
 }
 
