@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Changed
 
 - Log stack traces when there is an error.
+
+## [0.2.1] - 2022-06-22
+
+### Fixed
+
+- Fix catching 404 not found error when deleting the firewall rule.
 
 ## [0.2.0] - 2022-06-21
 
@@ -27,7 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Improve logging by adding gcp cluster name being reconciled.
 
-[Unreleased]: https://github.com/giantswarm/capg-firewall-rule-operator/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/giantswarm/capg-firewall-rule-operator/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/giantswarm/capg-firewall-rule-operator/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/giantswarm/capg-firewall-rule-operator/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/giantswarm/capg-firewall-rule-operator/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/giantswarm/capg-firewall-rule-operator/releases/tag/v0.1.0
