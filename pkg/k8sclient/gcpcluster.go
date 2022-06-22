@@ -3,7 +3,7 @@ package k8sclient
 import (
 	"context"
 
-	"github.com/giantswarm/microerror"
+	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/types"
 	capg "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
 	capi "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -26,16 +26,16 @@ func (g *GCPCluster) Get(ctx context.Context, namespacedName types.NamespacedNam
 	gcpCluster := &capg.GCPCluster{}
 	err := g.client.Get(ctx, namespacedName, gcpCluster)
 	if err != nil {
-		return nil, microerror.Mask(err)
+		return nil, errors.WithStack(err)
 	}
 
-	return gcpCluster, microerror.Mask(err)
+	return gcpCluster, errors.WithStack(err)
 }
 
 func (g *GCPCluster) GetOwner(ctx context.Context, capgCluster *capg.GCPCluster) (*capi.Cluster, error) {
 	cluster, err := util.GetOwnerCluster(ctx, g.client, capgCluster.ObjectMeta)
 	if err != nil {
-		return nil, microerror.Mask(err)
+		return nil, errors.WithStack(err)
 	}
 
 	return cluster, nil

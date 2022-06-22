@@ -3,9 +3,9 @@ package controllers
 import (
 	"context"
 
-	"github.com/giantswarm/microerror"
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/api/errors"
+	"github.com/pkg/errors"
+	apimachineryerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	capg "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
 	capi "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -54,16 +54,16 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	gcpCluster, err := r.client.Get(ctx, req.NamespacedName)
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if apimachineryerrors.IsNotFound(err) {
 			log.Info("GCP Cluster no longer exists")
 			return ctrl.Result{}, nil
 		}
-		return ctrl.Result{}, microerror.Mask(err)
+		return ctrl.Result{}, errors.WithStack(err)
 	}
 
 	cluster, err := r.client.GetOwner(ctx, gcpCluster)
 	if err != nil {
-		return ctrl.Result{}, microerror.Mask(err)
+		return ctrl.Result{}, errors.WithStack(err)
 	}
 
 	if cluster == nil {
@@ -79,7 +79,7 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if !gcpCluster.DeletionTimestamp.IsZero() {
 		result, err = r.reconcileDelete(ctx, gcpCluster)
 		if err != nil {
-			return ctrl.Result{}, microerror.Mask(err)
+			return ctrl.Result{}, errors.WithStack(err)
 		}
 
 		return result, nil
@@ -87,7 +87,7 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	result, err = r.reconcileNormal(ctx, gcpCluster)
 	if err != nil {
-		return ctrl.Result{}, microerror.Mask(err)
+		return ctrl.Result{}, errors.WithStack(err)
 	}
 
 	return result, nil
@@ -96,12 +96,12 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 func (r *GCPClusterReconciler) reconcileNormal(ctx context.Context, gcpCluster *capg.GCPCluster) (ctrl.Result, error) {
 	err := r.client.AddFinalizer(ctx, gcpCluster, FinalizerFW)
 	if err != nil {
-		return ctrl.Result{}, microerror.Mask(err)
+		return ctrl.Result{}, errors.WithStack(err)
 	}
 
 	err = r.firewallClient.CreateBastionFirewallRule(ctx, gcpCluster)
 	if err != nil {
-		return ctrl.Result{}, microerror.Mask(err)
+		return ctrl.Result{}, errors.WithStack(err)
 	}
 
 	return ctrl.Result{}, nil
@@ -110,12 +110,12 @@ func (r *GCPClusterReconciler) reconcileNormal(ctx context.Context, gcpCluster *
 func (r *GCPClusterReconciler) reconcileDelete(ctx context.Context, gcpCluster *capg.GCPCluster) (ctrl.Result, error) {
 	err := r.firewallClient.DeleteBastionFirewallRule(ctx, gcpCluster)
 	if err != nil {
-		return ctrl.Result{}, microerror.Mask(err)
+		return ctrl.Result{}, errors.WithStack(err)
 	}
 
 	err = r.client.RemoveFinalizer(ctx, gcpCluster, FinalizerFW)
 	if err != nil {
-		return ctrl.Result{}, microerror.Mask(err)
+		return ctrl.Result{}, errors.WithStack(err)
 	}
 
 	return ctrl.Result{}, nil
