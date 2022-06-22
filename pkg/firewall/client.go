@@ -80,14 +80,14 @@ func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GC
 		}
 	}
 
-	logger.Info(fmt.Sprintf("Created firewall rule for bastion %s", tagName))
+	logger.Info("Created firewall rule for bastion")
 	return nil
 }
 
 func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error {
 	name := fmt.Sprintf("%s-bastion", cluster.GetName())
 	logger := c.logger.WithValues("name", name)
-	logger.Info(fmt.Sprintf("Deleting firewall rule for bastion %s", name))
+	logger.Info("Deleting firewall rule for bastion")
 
 	req := &computepb.DeleteFirewallRequest{
 		Project:  cluster.Spec.Project,
@@ -114,6 +114,7 @@ func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GC
 
 	logger.Info("Deleted firewall rule for bastion")
 	return nil
+}
 }
 
 func bastionFirewallPolicyRuleName(clusterName string) string {
