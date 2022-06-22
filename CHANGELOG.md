@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Fix cathcing 404 not found errow hen deleting the firewall rule.
+- Fix catching 404 not found error when deleting the firewall rule.
 
 ## [0.2.0] - 2022-06-21
 
