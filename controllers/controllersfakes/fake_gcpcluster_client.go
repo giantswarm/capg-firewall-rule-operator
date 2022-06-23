@@ -5,11 +5,10 @@ import (
 	"context"
 	"sync"
 
+	"github.com/giantswarm/capg-firewall-rule-operator/controllers"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
 	v1beta1a "sigs.k8s.io/cluster-api/api/v1beta1"
-
-	"github.com/giantswarm/capg-firewall-rule-operator/controllers"
 )
 
 type FakeGCPClusterClient struct {
