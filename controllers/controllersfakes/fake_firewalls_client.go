@@ -5,8 +5,9 @@ import (
 	"context"
 	"sync"
 
-	"github.com/giantswarm/capg-firewall-rule-operator/controllers"
 	"sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
+
+	"github.com/giantswarm/capg-firewall-rule-operator/controllers"
 )
 
 type FakeFirewallsClient struct {
