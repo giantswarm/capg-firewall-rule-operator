@@ -102,7 +102,7 @@ func main() {
 	defer gcpFwClient.Close()
 
 	client := k8sclient.NewGCPCluster(mgr.GetClient())
-	firewallClient := firewall.NewClient(gcpFwClient, mgr.GetClient(), logger)
+	firewallClient := firewall.NewClient(gcpFwClient, logger)
 
 	controller := controllers.NewGCPClusterReconciler(mgr.GetLogger(), client, firewallClient)
 	err = controller.SetupWithManager(mgr)
