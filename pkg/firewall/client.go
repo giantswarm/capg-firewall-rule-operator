@@ -11,19 +11,16 @@ import (
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
 	"google.golang.org/protobuf/proto"
 	capg "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type Client struct {
 	fwService *compute.FirewallsClient
-	k8sClient client.Client
 	logger    logr.Logger
 }
 
-func NewClient(fwService *compute.FirewallsClient, k8sClient client.Client, logger logr.Logger) *Client {
+func NewClient(fwService *compute.FirewallsClient, logger logr.Logger) *Client {
 	return &Client{
 		fwService: fwService,
-		k8sClient: k8sClient,
 		logger:    logger,
 	}
 }
