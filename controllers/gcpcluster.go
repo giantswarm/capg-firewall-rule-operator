@@ -71,7 +71,7 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		log.Info("GCP Cluster does not have an owner cluster yet")
 		return ctrl.Result{}, nil
 	}
-	if gcpCluster.Status.Network == nil || *gcpCluster.Status.Network.SelfLink == "" {
+	if gcpCluster.Status.Network.SelfLink == nil || *gcpCluster.Status.Network.SelfLink == "" {
 		log.Info("GCP Cluster does not have network set yet")
 		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 30}, nil
 	}
