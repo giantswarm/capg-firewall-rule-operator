@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"time"
 
 	"github.com/giantswarm/microerror"
 	"github.com/go-logr/logr"
@@ -69,6 +70,10 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if cluster == nil {
 		log.Info("GCP Cluster does not have an owner cluster yet")
 		return ctrl.Result{}, nil
+	}
+	if *gcpCluster.Status.Network.SelfLink == "" {
+		log.Info("GCP Cluster does not have network set yet")
+		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 30}, nil
 	}
 
 	if annotations.IsPaused(cluster, gcpCluster) {
