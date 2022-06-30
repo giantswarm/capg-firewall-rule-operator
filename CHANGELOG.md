@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Wait until the `GCPCLuster` has network link in status field.
+
 ### Removed
 
 - No need for a k8s client on the firewall client.
