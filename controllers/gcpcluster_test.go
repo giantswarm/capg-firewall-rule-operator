@@ -48,7 +48,8 @@ var _ = Describe("GCPClusterReconciler", func() {
 			firewallsClient,
 		)
 
-		gcpCluster = &capg.GCPCluster{}
+		selfLink := "something"
+		gcpCluster = &capg.GCPCluster{Status: capg.GCPClusterStatus{Network: capg.Network{SelfLink: &selfLink}}}
 		client.GetReturns(gcpCluster, nil)
 
 		cluster = &capi.Cluster{}
