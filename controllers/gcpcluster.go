@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
@@ -78,7 +77,7 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	if gcpCluster.Status.Network.SelfLink == nil || *gcpCluster.Status.Network.SelfLink == "" {
 		log.Info("GCP Cluster does not have network set yet")
-		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 30}, nil
+		return ctrl.Result{}, nil
 	}
 
 	if annotations.IsPaused(cluster, gcpCluster) {

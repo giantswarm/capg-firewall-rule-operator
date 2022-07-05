@@ -177,6 +177,21 @@ var _ = Describe("GCPClusterReconciler", func() {
 		})
 	})
 
+	When("the cluster does not have Status.Network.SelfLink set yet", func() {
+		BeforeEach(func() {
+			gcpCluster = &capg.GCPCluster{}
+			client.GetReturns(gcpCluster, nil)
+		})
+
+		It("does not requeue the event", func() {
+			Expect(result.Requeue).To(BeFalse())
+			Expect(result.RequeueAfter).To(BeZero())
+			Expect(reconcileErr).NotTo(HaveOccurred())
+
+			Expect(firewallsClient.DeleteBastionFirewallRuleCallCount()).To(Equal(0))
+		})
+	})
+
 	When("the cluster is paused", func() {
 		BeforeEach(func() {
 			cluster.Spec.Paused = true
