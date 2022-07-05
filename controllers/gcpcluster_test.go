@@ -112,7 +112,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 				firewallsClient.DeleteBastionFirewallRuleReturns(errors.New("boom"))
 			})
 
-			It("does not reconcile", func() {
+			It("returns an error", func() {
 				Expect(reconcileErr).To(HaveOccurred())
 			})
 
@@ -126,7 +126,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 				client.RemoveFinalizerReturns(errors.New("boom"))
 			})
 
-			It("does not reconcile", func() {
+			It("returns an error", func() {
 				Expect(reconcileErr).To(MatchError(ContainSubstring("boom")))
 			})
 		})
@@ -159,7 +159,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 			client.GetOwnerReturns(nil, errors.New("boom"))
 		})
 
-		It("does not requeue the event", func() {
+		It("returns an error", func() {
 			Expect(reconcileErr).To(MatchError(ContainSubstring("boom")))
 		})
 	})
@@ -209,7 +209,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 			client.AddFinalizerReturns(errors.New("boom"))
 		})
 
-		It("does not reconcile", func() {
+		It("returns an error", func() {
 			Expect(reconcileErr).To(MatchError(ContainSubstring("boom")))
 		})
 	})
@@ -219,7 +219,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 			firewallsClient.CreateBastionFirewallRuleReturns(errors.New("boom"))
 		})
 
-		It("does not reconcile", func() {
+		It("returns an error", func() {
 			Expect(reconcileErr).To(MatchError(ContainSubstring("boom")))
 		})
 	})
