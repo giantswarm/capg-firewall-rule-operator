@@ -76,6 +76,10 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
+.PHONY: lint-imports
+lint-imports: goimports ## Run go vet against code.
+	./scripts/check-imports.sh
+
 .PHONY: create-acceptance-cluster
 create-acceptance-cluster: kind
 	CLUSTER=$(CLUSTER) IMG=$(IMG) ./scripts/ensure-kind-cluster.sh
@@ -89,7 +93,7 @@ deploy-acceptance-cluster: docker-build create-acceptance-cluster install-cluste
 
 .PHONY: test-unit
 test-unit: ginkgo generate fmt vet envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" $(GINKGO) -p --nodes 8 -r -randomize-all --randomize-suites --skip-package=tests ./...
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" $(GINKGO) -p --cover --nodes 8 -r -randomize-all --randomize-suites --skip-package=tests ./...
 
 .PHONY: test-integration
 test-integration: ginkgo ensure-gcp-envs ## Run integration tests
@@ -165,6 +169,11 @@ KIND = $(shell pwd)/bin/kind
 .PHONY: kind
 kind: ## Download kind locally if necessary.
 	$(call go-get-tool,$(KIND),sigs.k8s.io/kind@latest)
+
+GOIMPORTS = $(shell pwd)/bin/goimports
+.PHONY: goimports
+goimports: ## Download kind locally if necessary.
+	$(call go-get-tool,$(GOIMPORTS),golang.org/x/tools/cmd/goimports@latest)
 
 CLUSTERCTL = $(shell pwd)/bin/clusterctl
 .PHONY: clusterctl

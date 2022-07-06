@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
@@ -12,8 +11,6 @@ import (
 	capi "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	ctrl "sigs.k8s.io/controller-runtime"
-
-	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall"
 )
 
 const FinalizerFW = "capg-firewall-rule-operator.finalizers.giantswarm.io"
@@ -26,13 +23,19 @@ type GCPClusterClient interface {
 	RemoveFinalizer(context.Context, *capg.GCPCluster, string) error
 }
 
+//counterfeiter:generate . FirewallsClient
+type FirewallsClient interface {
+	CreateBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error
+	DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error
+}
+
 type GCPClusterReconciler struct {
 	logger         logr.Logger
 	client         GCPClusterClient
-	firewallClient *firewall.Client
+	firewallClient FirewallsClient
 }
 
-func NewGCPClusterReconciler(logger logr.Logger, client GCPClusterClient, firewallClient *firewall.Client) *GCPClusterReconciler {
+func NewGCPClusterReconciler(logger logr.Logger, client GCPClusterClient, firewallClient FirewallsClient) *GCPClusterReconciler {
 	return &GCPClusterReconciler{
 		logger:         logger,
 		client:         client,
@@ -71,9 +74,10 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		log.Info("GCP Cluster does not have an owner cluster yet")
 		return ctrl.Result{}, nil
 	}
+
 	if gcpCluster.Status.Network.SelfLink == nil || *gcpCluster.Status.Network.SelfLink == "" {
 		log.Info("GCP Cluster does not have network set yet")
-		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 30}, nil
+		return ctrl.Result{}, nil
 	}
 
 	if annotations.IsPaused(cluster, gcpCluster) {
