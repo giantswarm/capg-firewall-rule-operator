@@ -28,6 +28,8 @@ func NewClient(fwService *compute.FirewallsClient, logger logr.Logger) *Client {
 const (
 	ProtocolTCP = "tcp"
 	PortSSH     = "22"
+
+	AnnotationBastionWhitelistSubnets = "bastion.gcp.giantswarm.io/whitelist"
 )
 
 func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error {
@@ -45,11 +47,12 @@ func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GC
 				Ports:      []string{PortSSH},
 			},
 		},
-		Description: proto.String("allow port 22 for SSH to"),
-		Direction:   proto.String(computepb.Firewall_INGRESS.String()),
-		Name:        &fwName,
-		Network:     cluster.Status.Network.SelfLink,
-		TargetTags:  []string{tagName},
+		Description:  proto.String("allow port 22 for SSH to"),
+		Direction:    proto.String(computepb.Firewall_INGRESS.String()),
+		Name:         &fwName,
+		Network:      cluster.Status.Network.SelfLink,
+		TargetTags:   []string{tagName},
+		SourceRanges: GetIPRangesFromAnnotation(cluster),
 	}
 
 	req := &computepb.InsertFirewallRequest{
@@ -111,6 +114,26 @@ func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GC
 
 	logger.Info("Deleted firewall rule for bastion")
 	return nil
+}
+
+func GetIPRangesFromAnnotation(gcpCluster *capg.GCPCluster) []string {
+	var ipRanges []string
+
+	if a, ok := gcpCluster.Annotations[AnnotationBastionWhitelistSubnets]; ok {
+		parts := strings.Split(a, ",")
+
+		for _, p := range parts {
+			if p != "" {
+				ipRanges = append(ipRanges, p)
+			}
+		}
+	}
+
+	if len(ipRanges) == 0 {
+		ipRanges = []string{"0.0.0.0/0"}
+	}
+
+	return ipRanges
 }
 
 func bastionFirewallPolicyRuleName(clusterName string) string {
