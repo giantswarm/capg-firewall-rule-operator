@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	compute "cloud.google.com/go/compute/apiv1"
+	"github.com/giantswarm/microerror"
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
 	"google.golang.org/protobuf/proto"
 	capg "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
@@ -41,6 +41,8 @@ func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GC
 	logger := c.logger.WithValues("name", tagName)
 	logger.Info("Creating firewall rule for bastion")
 
+	sourceIPRanges := GetIPRangesFromAnnotation(logger, cluster)
+
 	rule := &computepb.Firewall{
 		Allowed: []*computepb.Allowed{
 			{
@@ -53,7 +55,7 @@ func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GC
 		Name:         &fwName,
 		Network:      cluster.Status.Network.SelfLink,
 		TargetTags:   []string{tagName},
-		SourceRanges: GetIPRangesFromAnnotation(logger, cluster),
+		SourceRanges: sourceIPRanges,
 	}
 
 	req := &computepb.InsertFirewallRequest{
@@ -64,10 +66,14 @@ func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GC
 	op, err := c.fwService.Insert(ctx, req)
 	if err != nil {
 		if isAlreadyExistError(err) {
-			// pass thru, resource already exists
+			err = c.UpdateRuleIfNotUpToDate(ctx, cluster, rule)
+			if err != nil {
+				return microerror.Mask(err)
+			}
+
 			return nil
 		} else {
-			return errors.WithStack(err)
+			return microerror.Mask(err)
 		}
 	}
 
@@ -77,7 +83,7 @@ func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GC
 		if isAlreadyExistError(err) {
 			// pass thru, resource already exists
 		} else {
-			return errors.WithStack(err)
+			return microerror.Mask(err)
 		}
 	}
 
@@ -103,17 +109,70 @@ func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GC
 
 		return nil
 	} else if err != nil {
-		return errors.WithStack(err)
+		return microerror.Mask(err)
 	}
 	err = op.Wait(ctx)
 
 	if isNotFoundError(err) {
 		// pass thru, resource is already deleted
 	} else if err != nil {
-		return errors.WithStack(err)
+		return microerror.Mask(err)
 	}
 
 	logger.Info("Deleted firewall rule for bastion")
+	return nil
+}
+
+func (c *Client) UpdateRuleIfNotUpToDate(ctx context.Context, cluster *capg.GCPCluster, rule *computepb.Firewall) error {
+	fwName := bastionFirewallPolicyRuleName(cluster.Name)
+	tagName := fmt.Sprintf("%s-bastion", cluster.GetName())
+	logger := c.logger.WithValues("name", tagName)
+
+	req := &computepb.GetFirewallRequest{
+		Firewall: fwName,
+		Project:  cluster.Spec.Project,
+	}
+	resp, err := c.fwService.Get(ctx, req)
+	if err != nil {
+		return microerror.Mask(err)
+	}
+
+	updateRules := false
+
+	if len(resp.SourceRanges) != len(rule.SourceRanges) {
+		updateRules = true
+	}
+	for i, subnet := range resp.SourceRanges {
+		if rule.SourceRanges[i] != subnet {
+			updateRules = true
+		}
+	}
+
+	if updateRules {
+		logger.Info("Changes detected, updating bastion firewall rule")
+
+		req := &computepb.UpdateFirewallRequest{
+			Firewall:         fwName,
+			Project:          cluster.Spec.Project,
+			FirewallResource: rule,
+		}
+
+		op, err := c.fwService.Update(ctx, req)
+		if err != nil {
+			return microerror.Mask(err)
+		}
+
+		err = op.Wait(ctx)
+		if err != nil {
+			return microerror.Mask(err)
+		}
+
+		logger.Info("Bastion firewall rules were updated")
+
+	} else {
+		logger.Info("No changes detected, not updating bastion firewall rule")
+	}
+
 	return nil
 }
 
