@@ -4,6 +4,7 @@ go 1.17
 
 require (
 	cloud.google.com/go/compute v1.6.0
+	github.com/giantswarm/microerror v0.4.0
 	github.com/go-logr/logr v1.2.3
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.5.0
 	github.com/onsi/ginkgo/v2 v2.1.4

@@ -3,6 +3,7 @@ package firewall
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 
 	compute "cloud.google.com/go/compute/apiv1"
@@ -52,7 +53,7 @@ func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GC
 		Name:         &fwName,
 		Network:      cluster.Status.Network.SelfLink,
 		TargetTags:   []string{tagName},
-		SourceRanges: GetIPRangesFromAnnotation(cluster),
+		SourceRanges: GetIPRangesFromAnnotation(logger, cluster),
 	}
 
 	req := &computepb.InsertFirewallRequest{
@@ -116,21 +117,20 @@ func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GC
 	return nil
 }
 
-func GetIPRangesFromAnnotation(gcpCluster *capg.GCPCluster) []string {
+func GetIPRangesFromAnnotation(logger logr.Logger, gcpCluster *capg.GCPCluster) []string {
 	var ipRanges []string
 
 	if a, ok := gcpCluster.Annotations[AnnotationBastionWhitelistSubnets]; ok {
 		parts := strings.Split(a, ",")
 
 		for _, p := range parts {
-			if p != "" {
+			// try parse the cidr
+			_, _, err := net.ParseCIDR(p)
+			if err == nil {
 				ipRanges = append(ipRanges, p)
+				logger.Error(failedParseSubnetError, "failed parsing subnets from annotations on CPCLuster", "subnet", p)
 			}
 		}
-	}
-
-	if len(ipRanges) == 0 {
-		ipRanges = []string{"0.0.0.0/0"}
 	}
 
 	return ipRanges
@@ -138,12 +138,4 @@ func GetIPRangesFromAnnotation(gcpCluster *capg.GCPCluster) []string {
 
 func bastionFirewallPolicyRuleName(clusterName string) string {
 	return fmt.Sprintf("allow-%s-bastion-ssh", clusterName)
-}
-
-func isAlreadyExistError(err error) bool {
-	return strings.Contains(err.Error(), "already exists")
-}
-
-func isNotFoundError(err error) bool {
-	return strings.Contains(err.Error(), "404")
 }
