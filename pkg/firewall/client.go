@@ -141,10 +141,11 @@ func (c *Client) UpdateRuleIfNotUpToDate(ctx context.Context, cluster *capg.GCPC
 
 	if len(resp.SourceRanges) != len(rule.SourceRanges) {
 		updateRules = true
-	}
-	for i, subnet := range resp.SourceRanges {
-		if rule.SourceRanges[i] != subnet {
-			updateRules = true
+	} else {
+		for i, subnet := range resp.SourceRanges {
+			if rule.SourceRanges[i] != subnet {
+				updateRules = true
+			}
 		}
 	}
 
@@ -187,7 +188,8 @@ func GetIPRangesFromAnnotation(logger logr.Logger, gcpCluster *capg.GCPCluster) 
 			_, _, err := net.ParseCIDR(p)
 			if err == nil {
 				ipRanges = append(ipRanges, p)
-				logger.Error(failedParseSubnetError, "failed parsing subnets from annotations on CPCLuster", "subnet", p)
+			} else {
+				logger.Error(err, "failed parsing subnets from annotations on GPCLuster", "subnet", p)
 			}
 		}
 	}
