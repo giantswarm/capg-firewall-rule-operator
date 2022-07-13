@@ -2,201 +2,147 @@ package firewall
 
 import (
 	"context"
-	"fmt"
-	"net"
-	"strings"
+	"net/http"
+	"strconv"
 
 	compute "cloud.google.com/go/compute/apiv1"
-	"github.com/giantswarm/microerror"
+	"github.com/giantswarm/to"
 	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
-	"google.golang.org/protobuf/proto"
 	capg "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
-
-type Client struct {
-	fwService *compute.FirewallsClient
-	logger    logr.Logger
-}
-
-func NewClient(fwService *compute.FirewallsClient, logger logr.Logger) *Client {
-	return &Client{
-		fwService: fwService,
-		logger:    logger,
-	}
-}
 
 const (
-	ProtocolTCP = "tcp"
-	PortSSH     = "22"
-
-	AnnotationBastionWhitelistSubnets = "bastion.gcp.giantswarm.io/whitelist"
+	ProtocolTCP      = "tcp"
+	ProtocolUDP      = "udp"
+	PortSSH          = uint32(22)
+	DirectionIngress = "INGRESS"
+	DirectionEgress  = "EGRESS"
 )
 
-func (c *Client) CreateBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error {
-	fwName := bastionFirewallPolicyRuleName(cluster.Name)
-	ipProtocol := ProtocolTCP
+type Rule struct {
+	Allowed      []Allowed
+	Description  string
+	Direction    string
+	Name         string
+	TargetTags   []string
+	SourceRanges []string
+}
 
-	tagName := fmt.Sprintf("%s-bastion", cluster.GetName())
-	logger := c.logger.WithValues("name", tagName)
-	logger.Info("Creating firewall rule for bastion")
+type Allowed struct {
+	IPProtocol string
+	Ports      []uint32
+}
 
-	sourceIPRanges := GetIPRangesFromAnnotation(logger, cluster)
+type Client struct {
+	firewallClient *compute.FirewallsClient
+}
 
-	rule := &computepb.Firewall{
-		Allowed: []*computepb.Allowed{
-			{
-				IPProtocol: &ipProtocol,
-				Ports:      []string{PortSSH},
-			},
-		},
-		Description:  proto.String("allow port 22 for SSH to"),
-		Direction:    proto.String(computepb.Firewall_INGRESS.String()),
-		Name:         &fwName,
-		Network:      cluster.Status.Network.SelfLink,
-		TargetTags:   []string{tagName},
-		SourceRanges: sourceIPRanges,
+func NewClient(firewallService *compute.FirewallsClient) *Client {
+	return &Client{
+		firewallClient: firewallService,
 	}
+}
+
+func (c *Client) ApplyRule(ctx context.Context, cluster *capg.GCPCluster, rule Rule) error {
+	logger := c.getLogger(ctx, rule.Name)
+
+	logger.Info("Creating firewall rule")
+	defer logger.Info("Done creating firewall rule")
+
+	firewall := toGCPFirewall(cluster, rule)
 
 	req := &computepb.InsertFirewallRequest{
 		Project:          cluster.Spec.Project,
-		FirewallResource: rule,
+		FirewallResource: firewall,
+	}
+	op, err := c.firewallClient.Insert(ctx, req)
+
+	if hasHttpCode(err, http.StatusConflict) {
+		logger.Info("Firewall already exists. Updating")
+		err = c.updateFirewall(ctx, cluster, firewall)
+		return errors.WithStack(err)
 	}
 
-	op, err := c.fwService.Insert(ctx, req)
 	if err != nil {
-		if isAlreadyExistError(err) {
-			err = c.UpdateRuleIfNotUpToDate(ctx, cluster, rule)
-			if err != nil {
-				return microerror.Mask(err)
-			}
-
-			return nil
-		} else {
-			return microerror.Mask(err)
-		}
+		return errors.WithStack(err)
 	}
 
 	err = op.Wait(ctx)
-
-	if err != nil {
-		if isAlreadyExistError(err) {
-			// pass thru, resource already exists
-		} else {
-			return microerror.Mask(err)
-		}
-	}
-
-	logger.Info("Created firewall rule for bastion")
-	return nil
+	return errors.WithStack(err)
 }
 
-func (c *Client) DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error {
-	name := fmt.Sprintf("%s-bastion", cluster.GetName())
-	logger := c.logger.WithValues("name", name)
-	logger.Info("Deleting firewall rule for bastion")
+func (c *Client) DeleteRule(ctx context.Context, cluster *capg.GCPCluster, ruleName string) error {
+	logger := c.getLogger(ctx, ruleName)
+
+	logger.Info("Deleting firewall rule")
+	defer logger.Info("Done deleting firewall rule")
 
 	req := &computepb.DeleteFirewallRequest{
 		Project:  cluster.Spec.Project,
-		Firewall: bastionFirewallPolicyRuleName(cluster.Name),
+		Firewall: ruleName,
 	}
-
-	op, err := c.fwService.Delete(ctx, req)
-
-	if isNotFoundError(err) {
-		// pass thru, resource is already deleted
-		logger.Info("Firewall rule for bastion is already deleted")
-
+	op, err := c.firewallClient.Delete(ctx, req)
+	if hasHttpCode(err, http.StatusNotFound) {
+		logger.Info("Firewall already deleted")
 		return nil
-	} else if err != nil {
-		return microerror.Mask(err)
 	}
+
 	err = op.Wait(ctx)
 
-	if isNotFoundError(err) {
-		// pass thru, resource is already deleted
-	} else if err != nil {
-		return microerror.Mask(err)
-	}
-
-	logger.Info("Deleted firewall rule for bastion")
-	return nil
+	return errors.WithStack(err)
 }
 
-func (c *Client) UpdateRuleIfNotUpToDate(ctx context.Context, cluster *capg.GCPCluster, rule *computepb.Firewall) error {
-	fwName := bastionFirewallPolicyRuleName(cluster.Name)
-	tagName := fmt.Sprintf("%s-bastion", cluster.GetName())
-	logger := c.logger.WithValues("name", tagName)
-
-	req := &computepb.GetFirewallRequest{
-		Firewall: fwName,
-		Project:  cluster.Spec.Project,
+func (c *Client) updateFirewall(ctx context.Context, cluster *capg.GCPCluster, firewall *computepb.Firewall) error {
+	req := &computepb.PatchFirewallRequest{
+		Firewall:         *firewall.Name,
+		FirewallResource: firewall,
+		Project:          cluster.Spec.Project,
 	}
-	resp, err := c.fwService.Get(ctx, req)
+	op, err := c.firewallClient.Patch(ctx, req)
 	if err != nil {
-		return microerror.Mask(err)
+		return errors.WithStack(err)
 	}
 
-	updateRules := false
-
-	if len(resp.SourceRanges) != len(rule.SourceRanges) {
-		updateRules = true
-	} else {
-		for i, subnet := range resp.SourceRanges {
-			if rule.SourceRanges[i] != subnet {
-				updateRules = true
-			}
-		}
-	}
-
-	if updateRules {
-		logger.Info("Changes detected, updating bastion firewall rule")
-
-		req := &computepb.UpdateFirewallRequest{
-			Firewall:         fwName,
-			Project:          cluster.Spec.Project,
-			FirewallResource: rule,
-		}
-
-		op, err := c.fwService.Update(ctx, req)
-		if err != nil {
-			return microerror.Mask(err)
-		}
-
-		err = op.Wait(ctx)
-		if err != nil {
-			return microerror.Mask(err)
-		}
-
-		logger.Info("Bastion firewall rules were updated")
-
-	} else {
-		logger.Info("No changes detected, not updating bastion firewall rule")
-	}
-
-	return nil
+	err = op.Wait(ctx)
+	return errors.WithStack(err)
 }
 
-func GetIPRangesFromAnnotation(logger logr.Logger, gcpCluster *capg.GCPCluster) []string {
-	var ipRanges []string
-
-	if a, ok := gcpCluster.Annotations[AnnotationBastionWhitelistSubnets]; ok {
-		parts := strings.Split(a, ",")
-
-		for _, p := range parts {
-			// try parse the cidr
-			_, _, err := net.ParseCIDR(p)
-			if err == nil {
-				ipRanges = append(ipRanges, p)
-			} else {
-				logger.Error(err, "failed parsing subnets from annotations on GPCLuster", "subnet", p)
-			}
-		}
-	}
-
-	return ipRanges
+func (c *Client) getLogger(ctx context.Context, ruleName string) logr.Logger {
+	logger := log.FromContext(ctx)
+	logger = logger.WithName("firewall-client")
+	return logger.WithValues("name", ruleName)
 }
 
-func bastionFirewallPolicyRuleName(clusterName string) string {
-	return fmt.Sprintf("allow-%s-bastion-ssh", clusterName)
+func toGCPFirewall(cluster *capg.GCPCluster, rule Rule) *computepb.Firewall {
+	allowed := []*computepb.Allowed{}
+	for _, allowedPorts := range rule.Allowed {
+		ports := convertPorts(allowedPorts.Ports)
+
+		allowed = append(allowed, &computepb.Allowed{
+			IPProtocol: to.StringP(allowedPorts.IPProtocol),
+			Ports:      ports,
+		})
+	}
+
+	return &computepb.Firewall{
+		Allowed:      allowed,
+		Description:  to.StringP(rule.Description),
+		Direction:    to.StringP(rule.Direction),
+		Name:         to.StringP(rule.Name),
+		Network:      cluster.Status.Network.SelfLink,
+		TargetTags:   rule.TargetTags,
+		SourceRanges: rule.SourceRanges,
+	}
+}
+
+func convertPorts(portsNums []uint32) []string {
+	ports := []string{}
+	for _, port := range portsNums {
+		ports = append(ports, strconv.FormatUint(uint64(port), 10))
+	}
+
+	return ports
 }

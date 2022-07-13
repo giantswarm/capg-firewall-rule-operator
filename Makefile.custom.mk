@@ -9,7 +9,7 @@ IMAGE_TAG = $(word 2,$(subst :, ,$(IMG)))
 
 CLUSTER ?= dns-operator-gcp-acceptance
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.23
+ENVTEST_K8S_VERSION = 1.24
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -47,12 +47,6 @@ ensure-gcp-envs:
 ifndef GCP_PROJECT_ID
 	$(error GCP_PROJECT_ID is undefined)
 endif
-ifndef CLOUD_DNS_BASE_DOMAIN
-	$(error CLOUD_DNS_BASE_DOMAIN is undefined)
-endif
-ifndef CLOUD_DNS_PARENT_ZONE
-	$(error CLOUD_DNS_PARENT_ZONE is undefined)
-endif
 
 .PHONY: ensure-deploy-envs
 ensure-deploy-envs: ensure-gcp-envs
@@ -86,7 +80,7 @@ create-acceptance-cluster: kind
 
 .PHONY: install-cluster-api
 install-cluster-api: clusterctl
-	GCP_B64ENCODED_CREDENTIALS="" $(CLUSTERCTL) init --kubeconfig "${HOME}/.kube/$(CLUSTER).yml" --infrastructure=gcp --wait-providers || true
+	GCP_B64ENCODED_CREDENTIALS="" $(CLUSTERCTL) init --kubeconfig "$(KUBECONFIG)" --infrastructure=gcp --wait-providers || true
 
 .PHONY: deploy-acceptance-cluster
 deploy-acceptance-cluster: docker-build create-acceptance-cluster install-cluster-api deploy
@@ -102,11 +96,12 @@ test-integration: ginkgo ensure-gcp-envs ## Run integration tests
 	rm $(GOOGLE_APPLICATION_CREDENTIALS)
 
 .PHONY: test-acceptance
+test-acceptance: KUBECONFIG=$(HOME)/.kube/$(CLUSTER).yml
 test-acceptance: ginkgo ensure-gcp-envs deploy-acceptance-cluster ## Run acceptance testst
-	KUBECONFIG="$(HOME)/.kube/$(CLUSTER).yml" $(GINKGO) -p -r -randomize-all --randomize-suites tests/acceptance
+	KUBECONFIG="$(KUBECONFIG)" $(GINKGO) -p -nodes 2 -r -randomize-all --randomize-suites tests/acceptance
 
 .PHONY: test-all
-test-all: lint test-unit test-integration test-acceptance ## Run all tests and litner
+test-all: lint lint-imports test-unit test-integration test-acceptance ## Run all tests and litner
 
 ##@ Build
 
@@ -132,7 +127,8 @@ render: architect
 
 .PHONY: deploy
 deploy: manifests render ensure-deploy-envs ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	helm upgrade --install \
+	KUBECONFIG=$(KUBECONFIG) helm upgrade --install \
+		--namespace giantswarm \
 		--set image.tag=$(IMAGE_TAG) \
 		--set gcp.credentials=$(B64_GOOGLE_APPLICATION_CREDENTIALS) \
 		--set baseDomain=$(CLOUD_DNS_BASE_DOMAIN) \
@@ -142,13 +138,15 @@ deploy: manifests render ensure-deploy-envs ## Deploy controller to the K8s clus
 		dns-operator-gcp helm/rendered/dns-operator-gcp
 
 .PHONY: undeploy
-undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+undeploy: ## Undeploy controller from the K8s  specified in ~/.kube/config.
+	KUBECONFIG="$(KUBECONFIG)" helm uninstall \
+		--namespace giantswarm \
+		dns-operator-gcp
 
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
 .PHONY: controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
-	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.8.0)
+	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.9.0)
 
 ENVTEST = $(shell pwd)/bin/setup-envtest
 .PHONY: envtest

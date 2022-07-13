@@ -1,13 +1,18 @@
 package firewall
 
 import (
-	"strings"
+	"errors"
+
+	"google.golang.org/api/googleapi"
 )
 
-func isAlreadyExistError(err error) bool {
-	return strings.Contains(err.Error(), "already exists")
-}
+func hasHttpCode(err error, statusCode int) bool {
+	var googleErr *googleapi.Error
+	if errors.As(err, &googleErr) {
+		if googleErr.Code == statusCode {
+			return true
+		}
+	}
 
-func isNotFoundError(err error) bool {
-	return strings.Contains(err.Error(), "404")
+	return false
 }

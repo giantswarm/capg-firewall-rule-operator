@@ -30,3 +30,4 @@ helm/rendered/*
 
 # circle ci env file
 *.env
+export-me.sh
