@@ -1,13 +1,13 @@
 
 # Image URL to use all building/pushing image targets
-IMG ?= quay.io/giantswarm/dns-operator-gcp:dev
+IMG ?= docker.io/giantswarm/capg-firewall-rule-operator:dev
 
 # Substitute colon with space - this creates a list.
 # Word selects the n-th element of the list
 IMAGE_REPO = $(word 1,$(subst :, ,$(IMG)))
 IMAGE_TAG = $(word 2,$(subst :, ,$(IMG)))
 
-CLUSTER ?= dns-operator-gcp-acceptance
+CLUSTER ?= acceptance
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.24
 
@@ -122,8 +122,8 @@ endif
 .PHONY: render
 render: architect
 	mkdir -p $(shell pwd)/helm/rendered
-	cp -r $(shell pwd)/helm/dns-operator-gcp $(shell pwd)/helm/rendered/
-	$(ARCHITECT) helm template --dir $(shell pwd)/helm/rendered/dns-operator-gcp
+	cp -r $(shell pwd)/helm/capg-firewall-rule-operator $(shell pwd)/helm/rendered/
+	$(ARCHITECT) helm template --dir $(shell pwd)/helm/rendered/capg-firewall-rule-operator
 
 .PHONY: deploy
 deploy: manifests render ensure-deploy-envs ## Deploy controller to the K8s cluster specified in ~/.kube/config.
@@ -131,17 +131,14 @@ deploy: manifests render ensure-deploy-envs ## Deploy controller to the K8s clus
 		--namespace giantswarm \
 		--set image.tag=$(IMAGE_TAG) \
 		--set gcp.credentials=$(B64_GOOGLE_APPLICATION_CREDENTIALS) \
-		--set baseDomain=$(CLOUD_DNS_BASE_DOMAIN) \
-		--set parentDNSZone=$(CLOUD_DNS_PARENT_ZONE) \
-		--set gcpProject=$(GCP_PROJECT_ID) \
 		--wait \
-		dns-operator-gcp helm/rendered/dns-operator-gcp
+		capg-firewall-rule-operator helm/rendered/capg-firewall-rule-operator
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s  specified in ~/.kube/config.
 	KUBECONFIG="$(KUBECONFIG)" helm uninstall \
 		--namespace giantswarm \
-		dns-operator-gcp
+		capg-firewall-rule-operator
 
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
 .PHONY: controller-gen
