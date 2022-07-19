@@ -107,8 +107,8 @@ var _ = Describe("Firewalls", func() {
 	AfterEach(func() {
 		Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
 
-		tests.DeleteFirewall(firewalls, gcpProject, name)
-		tests.DeleteNetwork(networks, gcpProject, firewallName)
+		tests.DeleteFirewall(firewalls, gcpProject, firewallName)
+		tests.DeleteNetwork(networks, gcpProject, name)
 	})
 
 	It("creates the firewall rule", func() {
