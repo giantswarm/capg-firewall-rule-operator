@@ -123,7 +123,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 			IPProtocol: firewall.ProtocolTCP,
 			Ports:      []uint32{firewall.PortSSH},
 		}))
-		Expect(actualRule.Description).To(Equal("allow port 22 for SSH to"))
+		Expect(actualRule.Description).To(Equal("allow port 22 for SSH"))
 		Expect(actualRule.Direction).To(Equal(firewall.DirectionIngress))
 		Expect(actualRule.Name).To(Equal("allow-the-gcp-cluster-bastion-ssh"))
 		Expect(actualRule.TargetTags).To(Equal([]string{"the-gcp-cluster-bastion"}))

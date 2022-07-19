@@ -125,7 +125,7 @@ var _ = Describe("Firewalls", func() {
 
 		Expect(*actualFirewall.Name).To(Equal(firewallName))
 		Expect(*actualFirewall.Direction).To(Equal(firewall.DirectionIngress))
-		Expect(*actualFirewall.Description).To(Equal("allow port 22 for SSH to"))
+		Expect(*actualFirewall.Description).To(Equal("allow port 22 for SSH"))
 		Expect(actualFirewall.Network).To(Equal(network.SelfLink))
 		Expect(actualFirewall.TargetTags).To(ConsistOf(fmt.Sprintf("%s-bastion", name)))
 		Expect(actualFirewall.Allowed).To(HaveLen(1))

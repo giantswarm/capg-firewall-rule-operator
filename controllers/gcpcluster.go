@@ -138,9 +138,9 @@ func (r *GCPClusterReconciler) reconcileDelete(ctx context.Context, gcpCluster *
 }
 
 func (r *GCPClusterReconciler) createBastionFirewallRule(ctx context.Context, logger logr.Logger, gcpCluster *capg.GCPCluster) error {
-	ruleName := fmt.Sprintf("allow-%s-bastion-ssh", gcpCluster.Name)
+	ruleName := getBastionFirewallRuleName(gcpCluster.Name)
 	tagName := fmt.Sprintf("%s-bastion", gcpCluster.Name)
-	sourceIPRanges, err := GetIPRangesFromAnnotation(logger, gcpCluster)
+	sourceIPRanges, err := getIPRangesFromAnnotation(logger, gcpCluster)
 	if err != nil {
 		return errors.WithStack(err)
 	}
@@ -152,7 +152,7 @@ func (r *GCPClusterReconciler) createBastionFirewallRule(ctx context.Context, lo
 				Ports:      []uint32{firewall.PortSSH},
 			},
 		},
-		Description:  "allow port 22 for SSH to",
+		Description:  "allow port 22 for SSH",
 		Direction:    firewall.DirectionIngress,
 		Name:         ruleName,
 		TargetTags:   []string{tagName},
@@ -163,11 +163,15 @@ func (r *GCPClusterReconciler) createBastionFirewallRule(ctx context.Context, lo
 }
 
 func (r *GCPClusterReconciler) deleteBastionFirewallRule(ctx context.Context, gcpCluster *capg.GCPCluster) error {
-	ruleName := fmt.Sprintf("allow-%s-bastion-ssh", gcpCluster.Name)
+	ruleName := getBastionFirewallRuleName(gcpCluster.Name)
 	return r.firewallClient.DeleteRule(ctx, gcpCluster, ruleName)
 }
 
-func GetIPRangesFromAnnotation(logger logr.Logger, gcpCluster *capg.GCPCluster) ([]string, error) {
+func getBastionFirewallRuleName(clusterName string) string {
+	return fmt.Sprintf("allow-%s-bastion-ssh", clusterName)
+}
+
+func getIPRangesFromAnnotation(logger logr.Logger, gcpCluster *capg.GCPCluster) ([]string, error) {
 	annotation, ok := gcpCluster.Annotations[AnnotationBastionAllowListSubnets]
 	if !ok {
 		return nil, fmt.Errorf("%s annotation is empty", AnnotationBastionAllowListSubnets)
