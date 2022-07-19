@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	FinalizerFW                       = "capg-firewall-rule-operator.finalizers.giantswarm.io"
+	FinalizerFirewall                 = "capg-firewall-rule-operator.finalizers.giantswarm.io"
 	AnnotationBastionAllowListSubnets = "bastion.gcp.giantswarm.io/allowlist"
 )
 
@@ -110,7 +110,7 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 }
 
 func (r *GCPClusterReconciler) reconcileNormal(ctx context.Context, logger logr.Logger, gcpCluster *capg.GCPCluster) (ctrl.Result, error) {
-	err := r.client.AddFinalizer(ctx, gcpCluster, FinalizerFW)
+	err := r.client.AddFinalizer(ctx, gcpCluster, FinalizerFirewall)
 	if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
 	}
@@ -129,7 +129,7 @@ func (r *GCPClusterReconciler) reconcileDelete(ctx context.Context, gcpCluster *
 		return ctrl.Result{}, errors.WithStack(err)
 	}
 
-	err = r.client.RemoveFinalizer(ctx, gcpCluster, FinalizerFW)
+	err = r.client.RemoveFinalizer(ctx, gcpCluster, FinalizerFirewall)
 	if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
 	}

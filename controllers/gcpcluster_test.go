@@ -109,7 +109,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 		err := k8sClient.Get(ctx, request.NamespacedName, actualCluster)
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(actualCluster.Finalizers).To(ContainElement(controllers.FinalizerFW))
+		Expect(actualCluster.Finalizers).To(ContainElement(controllers.FinalizerFirewall))
 	})
 
 	It("uses the firewall client to create firewall rules for the cluster", func() {
@@ -133,7 +133,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 	When("the gcp cluster is marked for deletion", func() {
 		BeforeEach(func() {
 			patchedCluster := gcpCluster.DeepCopy()
-			patchedCluster.Finalizers = []string{controllers.FinalizerFW}
+			patchedCluster.Finalizers = []string{controllers.FinalizerFirewall}
 			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
 
 			Expect(k8sClient.Delete(ctx, gcpCluster)).To(Succeed())
@@ -172,7 +172,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 				err := k8sClient.Get(ctx, request.NamespacedName, actualCluster)
 				Expect(err).NotTo(HaveOccurred())
 
-				Expect(actualCluster.Finalizers).To(ContainElement(controllers.FinalizerFW))
+				Expect(actualCluster.Finalizers).To(ContainElement(controllers.FinalizerFirewall))
 			})
 		})
 	})

@@ -15,6 +15,7 @@ import (
 
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall"
 	"github.com/giantswarm/capg-firewall-rule-operator/tests"
+	. "github.com/giantswarm/capg-firewall-rule-operator/tests/matchers"
 )
 
 var _ = Describe("Client", func() {
@@ -45,7 +46,7 @@ var _ = Describe("Client", func() {
 		firewalls, err = compute.NewFirewallsRESTClient(ctx)
 		Expect(err).NotTo(HaveOccurred())
 
-		network = createNetwork(networks, name)
+		network = tests.CreateNetwork(networks, gcpProject, name)
 		networkSelfLink := network.SelfLink
 
 		cluster = &capg.GCPCluster{
@@ -81,8 +82,8 @@ var _ = Describe("Client", func() {
 	})
 
 	AfterEach(func() {
-		deleteFirewall(firewalls, name)
-		deleteNetwork(networks, name)
+		tests.DeleteFirewall(firewalls, gcpProject, name)
+		tests.DeleteNetwork(networks, gcpProject, name)
 	})
 
 	Describe("ApplyRule", func() {

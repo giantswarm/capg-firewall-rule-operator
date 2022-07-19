@@ -98,7 +98,9 @@ test-integration: ginkgo ensure-gcp-envs ## Run integration tests
 .PHONY: test-acceptance
 test-acceptance: KUBECONFIG=$(HOME)/.kube/$(CLUSTER).yml
 test-acceptance: ginkgo ensure-gcp-envs deploy-acceptance-cluster ## Run acceptance testst
-	KUBECONFIG="$(KUBECONFIG)" $(GINKGO) -p -nodes 2 -r -randomize-all --randomize-suites tests/acceptance
+	$(eval GOOGLE_APPLICATION_CREDENTIALS=$(shell ${PWD}/scripts/create-gcp-credentials-file.sh))
+	GOOGLE_APPLICATION_CREDENTIALS=$(GOOGLE_APPLICATION_CREDENTIALS) KUBECONFIG="$(KUBECONFIG)" $(GINKGO) -p -nodes 2 -r -randomize-all --randomize-suites tests/acceptance
+	rm $(GOOGLE_APPLICATION_CREDENTIALS)
 
 .PHONY: test-all
 test-all: lint lint-imports test-unit test-integration test-acceptance ## Run all tests and litner
