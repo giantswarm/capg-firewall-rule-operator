@@ -36,7 +36,7 @@ jobs:
           when: always
           command: |
             echo "Waiting for cluster deletion"
-            while [[ -n "$(kubectl get clusters --all-namespaces -o name)" ]]; do
+            while [[ -n "$(kubectl get gcpclusters --all-namespaces -o name)" ]]; do
               echo "-------------------------------"
               kubectl get gcpclusters --all-namespaces
               sleep 1
