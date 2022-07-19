@@ -49,11 +49,23 @@ workflows:
           filters:
             tags:
               only: /^v.*/
+      - integration-tests:
+          filters:
+            tags:
+              only: /^v.*/
+      - acceptance-tests:
+          filters:
+            tags:
+              only: /^v.*/
       - architect/go-build:
           context: architect
           name: go-build
           binary: capg-firewall-rule-operator
           resource_class: xlarge
+          requires:
+            - unit-tests
+            - integration-tests
+            - acceptance-tests
           filters:
             tags:
               only: /^v.*/
