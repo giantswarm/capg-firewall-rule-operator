@@ -20,7 +20,6 @@ import (
 var (
 	k8sClient  client.Client
 	gcpProject string
-	baseDomain string
 
 	namespace    string
 	namespaceObj *corev1.Namespace
