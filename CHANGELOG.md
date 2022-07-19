@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Get whitelist IP ranges from the GCP cluster annotation instead using `0.0.0.0/0`.
+- Get allowlist IP ranges from the GCP cluster annotation instead using `0.0.0.0/0`.
 
 ## [0.3.1] - 2022-06-30
 
