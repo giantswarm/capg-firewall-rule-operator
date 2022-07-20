@@ -174,7 +174,8 @@ func getBastionFirewallRuleName(clusterName string) string {
 func getIPRangesFromAnnotation(logger logr.Logger, gcpCluster *capg.GCPCluster) ([]string, error) {
 	annotation, ok := gcpCluster.Annotations[AnnotationBastionAllowListSubnets]
 	if !ok {
-		return nil, fmt.Errorf("%s annotation is empty", AnnotationBastionAllowListSubnets)
+		logger.Info("Cluster does not have bastion allow list annotation. Using cloud default.")
+		return nil, nil
 	}
 
 	ipRanges := strings.Split(annotation, ",")
