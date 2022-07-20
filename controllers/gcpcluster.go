@@ -2,6 +2,9 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"net"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
@@ -11,11 +14,15 @@ import (
 	capi "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall"
 )
 
-const FinalizerFW = "capg-firewall-rule-operator.finalizers.giantswarm.io"
+const (
+	FinalizerFirewall                 = "capg-firewall-rule-operator.finalizers.giantswarm.io"
+	AnnotationBastionAllowListSubnets = "bastion.gcp.giantswarm.io/allowlist"
+)
 
-//counterfeiter:generate . GCPClusterClient
 type GCPClusterClient interface {
 	Get(context.Context, types.NamespacedName) (*capg.GCPCluster, error)
 	GetOwner(context.Context, *capg.GCPCluster) (*capi.Cluster, error)
@@ -25,8 +32,8 @@ type GCPClusterClient interface {
 
 //counterfeiter:generate . FirewallsClient
 type FirewallsClient interface {
-	CreateBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error
-	DeleteBastionFirewallRule(ctx context.Context, cluster *capg.GCPCluster) error
+	ApplyRule(context.Context, *capg.GCPCluster, firewall.Rule) error
+	DeleteRule(context.Context, *capg.GCPCluster, string) error
 }
 
 type GCPClusterReconciler struct {
@@ -52,14 +59,14 @@ func (r *GCPClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var result ctrl.Result
-	log := r.logger.WithValues("gcpcluster", req.NamespacedName)
-	log.Info("Reconciling")
-	defer log.Info("Done reconciling")
+	logger := r.logger.WithValues("gcpcluster", req.NamespacedName)
+	logger.Info("Reconciling")
+	defer logger.Info("Done reconciling")
 
 	gcpCluster, err := r.client.Get(ctx, req.NamespacedName)
 	if err != nil {
 		if apimachineryerrors.IsNotFound(err) {
-			log.Info("GCP Cluster no longer exists")
+			logger.Info("GCP Cluster no longer exists")
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, errors.WithStack(err)
@@ -71,17 +78,17 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if cluster == nil {
-		log.Info("GCP Cluster does not have an owner cluster yet")
+		logger.Info("GCP Cluster does not have an owner cluster yet")
 		return ctrl.Result{}, nil
 	}
 
 	if gcpCluster.Status.Network.SelfLink == nil || *gcpCluster.Status.Network.SelfLink == "" {
-		log.Info("GCP Cluster does not have network set yet")
+		logger.Info("GCP Cluster does not have network set yet")
 		return ctrl.Result{}, nil
 	}
 
 	if annotations.IsPaused(cluster, gcpCluster) {
-		log.Info("Infrastructure or core cluster is marked as paused. Won't reconcile")
+		logger.Info("Infrastructure or core cluster is marked as paused. Won't reconcile")
 		return ctrl.Result{}, nil
 	}
 
@@ -94,7 +101,7 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return result, nil
 	}
 
-	result, err = r.reconcileNormal(ctx, gcpCluster)
+	result, err = r.reconcileNormal(ctx, logger, gcpCluster)
 	if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
 	}
@@ -102,13 +109,13 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return result, nil
 }
 
-func (r *GCPClusterReconciler) reconcileNormal(ctx context.Context, gcpCluster *capg.GCPCluster) (ctrl.Result, error) {
-	err := r.client.AddFinalizer(ctx, gcpCluster, FinalizerFW)
+func (r *GCPClusterReconciler) reconcileNormal(ctx context.Context, logger logr.Logger, gcpCluster *capg.GCPCluster) (ctrl.Result, error) {
+	err := r.client.AddFinalizer(ctx, gcpCluster, FinalizerFirewall)
 	if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
 	}
 
-	err = r.firewallClient.CreateBastionFirewallRule(ctx, gcpCluster)
+	err = r.createBastionFirewallRule(ctx, logger, gcpCluster)
 	if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
 	}
@@ -117,15 +124,68 @@ func (r *GCPClusterReconciler) reconcileNormal(ctx context.Context, gcpCluster *
 }
 
 func (r *GCPClusterReconciler) reconcileDelete(ctx context.Context, gcpCluster *capg.GCPCluster) (ctrl.Result, error) {
-	err := r.firewallClient.DeleteBastionFirewallRule(ctx, gcpCluster)
+	err := r.deleteBastionFirewallRule(ctx, gcpCluster)
 	if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
 	}
 
-	err = r.client.RemoveFinalizer(ctx, gcpCluster, FinalizerFW)
+	err = r.client.RemoveFinalizer(ctx, gcpCluster, FinalizerFirewall)
 	if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *GCPClusterReconciler) createBastionFirewallRule(ctx context.Context, logger logr.Logger, gcpCluster *capg.GCPCluster) error {
+	ruleName := getBastionFirewallRuleName(gcpCluster.Name)
+	tagName := fmt.Sprintf("%s-bastion", gcpCluster.Name)
+	sourceIPRanges, err := getIPRangesFromAnnotation(logger, gcpCluster)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	rule := firewall.Rule{
+		Allowed: []firewall.Allowed{
+			{
+				IPProtocol: firewall.ProtocolTCP,
+				Ports:      []uint32{firewall.PortSSH},
+			},
+		},
+		Description:  "allow port 22 for SSH",
+		Direction:    firewall.DirectionIngress,
+		Name:         ruleName,
+		TargetTags:   []string{tagName},
+		SourceRanges: sourceIPRanges,
+	}
+
+	return r.firewallClient.ApplyRule(ctx, gcpCluster, rule)
+}
+
+func (r *GCPClusterReconciler) deleteBastionFirewallRule(ctx context.Context, gcpCluster *capg.GCPCluster) error {
+	ruleName := getBastionFirewallRuleName(gcpCluster.Name)
+	return r.firewallClient.DeleteRule(ctx, gcpCluster, ruleName)
+}
+
+func getBastionFirewallRuleName(clusterName string) string {
+	return fmt.Sprintf("allow-%s-bastion-ssh", clusterName)
+}
+
+func getIPRangesFromAnnotation(logger logr.Logger, gcpCluster *capg.GCPCluster) ([]string, error) {
+	annotation, ok := gcpCluster.Annotations[AnnotationBastionAllowListSubnets]
+	if !ok {
+		return nil, fmt.Errorf("%s annotation is empty", AnnotationBastionAllowListSubnets)
+	}
+
+	ipRanges := strings.Split(annotation, ",")
+	// validate the annotation contains valid CIRDs
+	for _, cidr := range ipRanges {
+		_, _, err := net.ParseCIDR(cidr)
+		if err != nil {
+			message := fmt.Sprintf("annotation %s contains invalid CIDRs", AnnotationBastionAllowListSubnets)
+			logger.Error(err, message, "subnet", cidr)
+			return nil, errors.New(message)
+		}
+	}
+	return ipRanges, nil
 }

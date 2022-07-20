@@ -30,3 +30,6 @@ helm/rendered/*
 
 # circle ci env file
 *.env
+
+# script to export test environment variables locally
+export-test-env.sh

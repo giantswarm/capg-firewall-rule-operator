@@ -1,15 +1,15 @@
 
 # Image URL to use all building/pushing image targets
-IMG ?= quay.io/giantswarm/dns-operator-gcp:dev
+IMG ?= docker.io/giantswarm/capg-firewall-rule-operator:dev
 
 # Substitute colon with space - this creates a list.
 # Word selects the n-th element of the list
 IMAGE_REPO = $(word 1,$(subst :, ,$(IMG)))
 IMAGE_TAG = $(word 2,$(subst :, ,$(IMG)))
 
-CLUSTER ?= dns-operator-gcp-acceptance
+CLUSTER ?= acceptance
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.23
+ENVTEST_K8S_VERSION = 1.24
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -47,12 +47,6 @@ ensure-gcp-envs:
 ifndef GCP_PROJECT_ID
 	$(error GCP_PROJECT_ID is undefined)
 endif
-ifndef CLOUD_DNS_BASE_DOMAIN
-	$(error CLOUD_DNS_BASE_DOMAIN is undefined)
-endif
-ifndef CLOUD_DNS_PARENT_ZONE
-	$(error CLOUD_DNS_PARENT_ZONE is undefined)
-endif
 
 .PHONY: ensure-deploy-envs
 ensure-deploy-envs: ensure-gcp-envs
@@ -86,7 +80,7 @@ create-acceptance-cluster: kind
 
 .PHONY: install-cluster-api
 install-cluster-api: clusterctl
-	GCP_B64ENCODED_CREDENTIALS="" $(CLUSTERCTL) init --kubeconfig "${HOME}/.kube/$(CLUSTER).yml" --infrastructure=gcp --wait-providers || true
+	GCP_B64ENCODED_CREDENTIALS="" $(CLUSTERCTL) init --kubeconfig "$(KUBECONFIG)" --infrastructure=gcp --wait-providers || true
 
 .PHONY: deploy-acceptance-cluster
 deploy-acceptance-cluster: docker-build create-acceptance-cluster install-cluster-api deploy
@@ -98,15 +92,18 @@ test-unit: ginkgo generate fmt vet envtest ## Run tests.
 .PHONY: test-integration
 test-integration: ginkgo ensure-gcp-envs ## Run integration tests
 	$(eval GOOGLE_APPLICATION_CREDENTIALS=$(shell ${PWD}/scripts/create-gcp-credentials-file.sh))
-	GOOGLE_APPLICATION_CREDENTIALS=$(GOOGLE_APPLICATION_CREDENTIALS) $(GINKGO) -p -r -randomize-all --randomize-suites tests/integration
+	GOOGLE_APPLICATION_CREDENTIALS=$(GOOGLE_APPLICATION_CREDENTIALS) $(GINKGO) -p -r -randomize-all --randomize-suites --slow-spec-threshold "30s" tests/integration
 	rm $(GOOGLE_APPLICATION_CREDENTIALS)
 
 .PHONY: test-acceptance
+test-acceptance: KUBECONFIG=$(HOME)/.kube/$(CLUSTER).yml
 test-acceptance: ginkgo ensure-gcp-envs deploy-acceptance-cluster ## Run acceptance testst
-	KUBECONFIG="$(HOME)/.kube/$(CLUSTER).yml" $(GINKGO) -p -r -randomize-all --randomize-suites tests/acceptance
+	$(eval GOOGLE_APPLICATION_CREDENTIALS=$(shell ${PWD}/scripts/create-gcp-credentials-file.sh))
+	GOOGLE_APPLICATION_CREDENTIALS=$(GOOGLE_APPLICATION_CREDENTIALS) KUBECONFIG="$(KUBECONFIG)" $(GINKGO) -p -nodes 2 -r -randomize-all --randomize-suites --slow-spec-threshold "30s" tests/acceptance
+	rm $(GOOGLE_APPLICATION_CREDENTIALS)
 
 .PHONY: test-all
-test-all: lint test-unit test-integration test-acceptance ## Run all tests and litner
+test-all: lint lint-imports test-unit test-integration test-acceptance ## Run all tests and litner
 
 ##@ Build
 
@@ -127,28 +124,28 @@ endif
 .PHONY: render
 render: architect
 	mkdir -p $(shell pwd)/helm/rendered
-	cp -r $(shell pwd)/helm/dns-operator-gcp $(shell pwd)/helm/rendered/
-	$(ARCHITECT) helm template --dir $(shell pwd)/helm/rendered/dns-operator-gcp
+	cp -r $(shell pwd)/helm/capg-firewall-rule-operator $(shell pwd)/helm/rendered/
+	$(ARCHITECT) helm template --dir $(shell pwd)/helm/rendered/capg-firewall-rule-operator
 
 .PHONY: deploy
 deploy: manifests render ensure-deploy-envs ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	helm upgrade --install \
+	KUBECONFIG=$(KUBECONFIG) helm upgrade --install \
+		--namespace giantswarm \
 		--set image.tag=$(IMAGE_TAG) \
 		--set gcp.credentials=$(B64_GOOGLE_APPLICATION_CREDENTIALS) \
-		--set baseDomain=$(CLOUD_DNS_BASE_DOMAIN) \
-		--set parentDNSZone=$(CLOUD_DNS_PARENT_ZONE) \
-		--set gcpProject=$(GCP_PROJECT_ID) \
 		--wait \
-		dns-operator-gcp helm/rendered/dns-operator-gcp
+		capg-firewall-rule-operator helm/rendered/capg-firewall-rule-operator
 
 .PHONY: undeploy
-undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+undeploy: ## Undeploy controller from the K8s  specified in ~/.kube/config.
+	KUBECONFIG="$(KUBECONFIG)" helm uninstall \
+		--namespace giantswarm \
+		capg-firewall-rule-operator
 
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
 .PHONY: controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
-	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.8.0)
+	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.9.0)
 
 ENVTEST = $(shell pwd)/bin/setup-envtest
 .PHONY: envtest

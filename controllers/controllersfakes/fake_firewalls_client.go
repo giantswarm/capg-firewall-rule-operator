@@ -8,50 +8,54 @@ import (
 	"sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
 
 	"github.com/giantswarm/capg-firewall-rule-operator/controllers"
+	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall"
 )
 
 type FakeFirewallsClient struct {
-	CreateBastionFirewallRuleStub        func(context.Context, *v1beta1.GCPCluster) error
-	createBastionFirewallRuleMutex       sync.RWMutex
-	createBastionFirewallRuleArgsForCall []struct {
+	ApplyRuleStub        func(context.Context, *v1beta1.GCPCluster, firewall.Rule) error
+	applyRuleMutex       sync.RWMutex
+	applyRuleArgsForCall []struct {
 		arg1 context.Context
 		arg2 *v1beta1.GCPCluster
+		arg3 firewall.Rule
 	}
-	createBastionFirewallRuleReturns struct {
+	applyRuleReturns struct {
 		result1 error
 	}
-	createBastionFirewallRuleReturnsOnCall map[int]struct {
+	applyRuleReturnsOnCall map[int]struct {
 		result1 error
 	}
-	DeleteBastionFirewallRuleStub        func(context.Context, *v1beta1.GCPCluster) error
-	deleteBastionFirewallRuleMutex       sync.RWMutex
-	deleteBastionFirewallRuleArgsForCall []struct {
+	DeleteRuleStub        func(context.Context, *v1beta1.GCPCluster, string) error
+	deleteRuleMutex       sync.RWMutex
+	deleteRuleArgsForCall []struct {
 		arg1 context.Context
 		arg2 *v1beta1.GCPCluster
+		arg3 string
 	}
-	deleteBastionFirewallRuleReturns struct {
+	deleteRuleReturns struct {
 		result1 error
 	}
-	deleteBastionFirewallRuleReturnsOnCall map[int]struct {
+	deleteRuleReturnsOnCall map[int]struct {
 		result1 error
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeFirewallsClient) CreateBastionFirewallRule(arg1 context.Context, arg2 *v1beta1.GCPCluster) error {
-	fake.createBastionFirewallRuleMutex.Lock()
-	ret, specificReturn := fake.createBastionFirewallRuleReturnsOnCall[len(fake.createBastionFirewallRuleArgsForCall)]
-	fake.createBastionFirewallRuleArgsForCall = append(fake.createBastionFirewallRuleArgsForCall, struct {
+func (fake *FakeFirewallsClient) ApplyRule(arg1 context.Context, arg2 *v1beta1.GCPCluster, arg3 firewall.Rule) error {
+	fake.applyRuleMutex.Lock()
+	ret, specificReturn := fake.applyRuleReturnsOnCall[len(fake.applyRuleArgsForCall)]
+	fake.applyRuleArgsForCall = append(fake.applyRuleArgsForCall, struct {
 		arg1 context.Context
 		arg2 *v1beta1.GCPCluster
-	}{arg1, arg2})
-	stub := fake.CreateBastionFirewallRuleStub
-	fakeReturns := fake.createBastionFirewallRuleReturns
-	fake.recordInvocation("CreateBastionFirewallRule", []interface{}{arg1, arg2})
-	fake.createBastionFirewallRuleMutex.Unlock()
+		arg3 firewall.Rule
+	}{arg1, arg2, arg3})
+	stub := fake.ApplyRuleStub
+	fakeReturns := fake.applyRuleReturns
+	fake.recordInvocation("ApplyRule", []interface{}{arg1, arg2, arg3})
+	fake.applyRuleMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2)
+		return stub(arg1, arg2, arg3)
 	}
 	if specificReturn {
 		return ret.result1
@@ -59,61 +63,62 @@ func (fake *FakeFirewallsClient) CreateBastionFirewallRule(arg1 context.Context,
 	return fakeReturns.result1
 }
 
-func (fake *FakeFirewallsClient) CreateBastionFirewallRuleCallCount() int {
-	fake.createBastionFirewallRuleMutex.RLock()
-	defer fake.createBastionFirewallRuleMutex.RUnlock()
-	return len(fake.createBastionFirewallRuleArgsForCall)
+func (fake *FakeFirewallsClient) ApplyRuleCallCount() int {
+	fake.applyRuleMutex.RLock()
+	defer fake.applyRuleMutex.RUnlock()
+	return len(fake.applyRuleArgsForCall)
 }
 
-func (fake *FakeFirewallsClient) CreateBastionFirewallRuleCalls(stub func(context.Context, *v1beta1.GCPCluster) error) {
-	fake.createBastionFirewallRuleMutex.Lock()
-	defer fake.createBastionFirewallRuleMutex.Unlock()
-	fake.CreateBastionFirewallRuleStub = stub
+func (fake *FakeFirewallsClient) ApplyRuleCalls(stub func(context.Context, *v1beta1.GCPCluster, firewall.Rule) error) {
+	fake.applyRuleMutex.Lock()
+	defer fake.applyRuleMutex.Unlock()
+	fake.ApplyRuleStub = stub
 }
 
-func (fake *FakeFirewallsClient) CreateBastionFirewallRuleArgsForCall(i int) (context.Context, *v1beta1.GCPCluster) {
-	fake.createBastionFirewallRuleMutex.RLock()
-	defer fake.createBastionFirewallRuleMutex.RUnlock()
-	argsForCall := fake.createBastionFirewallRuleArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+func (fake *FakeFirewallsClient) ApplyRuleArgsForCall(i int) (context.Context, *v1beta1.GCPCluster, firewall.Rule) {
+	fake.applyRuleMutex.RLock()
+	defer fake.applyRuleMutex.RUnlock()
+	argsForCall := fake.applyRuleArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
 }
 
-func (fake *FakeFirewallsClient) CreateBastionFirewallRuleReturns(result1 error) {
-	fake.createBastionFirewallRuleMutex.Lock()
-	defer fake.createBastionFirewallRuleMutex.Unlock()
-	fake.CreateBastionFirewallRuleStub = nil
-	fake.createBastionFirewallRuleReturns = struct {
+func (fake *FakeFirewallsClient) ApplyRuleReturns(result1 error) {
+	fake.applyRuleMutex.Lock()
+	defer fake.applyRuleMutex.Unlock()
+	fake.ApplyRuleStub = nil
+	fake.applyRuleReturns = struct {
 		result1 error
 	}{result1}
 }
 
-func (fake *FakeFirewallsClient) CreateBastionFirewallRuleReturnsOnCall(i int, result1 error) {
-	fake.createBastionFirewallRuleMutex.Lock()
-	defer fake.createBastionFirewallRuleMutex.Unlock()
-	fake.CreateBastionFirewallRuleStub = nil
-	if fake.createBastionFirewallRuleReturnsOnCall == nil {
-		fake.createBastionFirewallRuleReturnsOnCall = make(map[int]struct {
+func (fake *FakeFirewallsClient) ApplyRuleReturnsOnCall(i int, result1 error) {
+	fake.applyRuleMutex.Lock()
+	defer fake.applyRuleMutex.Unlock()
+	fake.ApplyRuleStub = nil
+	if fake.applyRuleReturnsOnCall == nil {
+		fake.applyRuleReturnsOnCall = make(map[int]struct {
 			result1 error
 		})
 	}
-	fake.createBastionFirewallRuleReturnsOnCall[i] = struct {
+	fake.applyRuleReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }
 
-func (fake *FakeFirewallsClient) DeleteBastionFirewallRule(arg1 context.Context, arg2 *v1beta1.GCPCluster) error {
-	fake.deleteBastionFirewallRuleMutex.Lock()
-	ret, specificReturn := fake.deleteBastionFirewallRuleReturnsOnCall[len(fake.deleteBastionFirewallRuleArgsForCall)]
-	fake.deleteBastionFirewallRuleArgsForCall = append(fake.deleteBastionFirewallRuleArgsForCall, struct {
+func (fake *FakeFirewallsClient) DeleteRule(arg1 context.Context, arg2 *v1beta1.GCPCluster, arg3 string) error {
+	fake.deleteRuleMutex.Lock()
+	ret, specificReturn := fake.deleteRuleReturnsOnCall[len(fake.deleteRuleArgsForCall)]
+	fake.deleteRuleArgsForCall = append(fake.deleteRuleArgsForCall, struct {
 		arg1 context.Context
 		arg2 *v1beta1.GCPCluster
-	}{arg1, arg2})
-	stub := fake.DeleteBastionFirewallRuleStub
-	fakeReturns := fake.deleteBastionFirewallRuleReturns
-	fake.recordInvocation("DeleteBastionFirewallRule", []interface{}{arg1, arg2})
-	fake.deleteBastionFirewallRuleMutex.Unlock()
+		arg3 string
+	}{arg1, arg2, arg3})
+	stub := fake.DeleteRuleStub
+	fakeReturns := fake.deleteRuleReturns
+	fake.recordInvocation("DeleteRule", []interface{}{arg1, arg2, arg3})
+	fake.deleteRuleMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2)
+		return stub(arg1, arg2, arg3)
 	}
 	if specificReturn {
 		return ret.result1
@@ -121,44 +126,44 @@ func (fake *FakeFirewallsClient) DeleteBastionFirewallRule(arg1 context.Context,
 	return fakeReturns.result1
 }
 
-func (fake *FakeFirewallsClient) DeleteBastionFirewallRuleCallCount() int {
-	fake.deleteBastionFirewallRuleMutex.RLock()
-	defer fake.deleteBastionFirewallRuleMutex.RUnlock()
-	return len(fake.deleteBastionFirewallRuleArgsForCall)
+func (fake *FakeFirewallsClient) DeleteRuleCallCount() int {
+	fake.deleteRuleMutex.RLock()
+	defer fake.deleteRuleMutex.RUnlock()
+	return len(fake.deleteRuleArgsForCall)
 }
 
-func (fake *FakeFirewallsClient) DeleteBastionFirewallRuleCalls(stub func(context.Context, *v1beta1.GCPCluster) error) {
-	fake.deleteBastionFirewallRuleMutex.Lock()
-	defer fake.deleteBastionFirewallRuleMutex.Unlock()
-	fake.DeleteBastionFirewallRuleStub = stub
+func (fake *FakeFirewallsClient) DeleteRuleCalls(stub func(context.Context, *v1beta1.GCPCluster, string) error) {
+	fake.deleteRuleMutex.Lock()
+	defer fake.deleteRuleMutex.Unlock()
+	fake.DeleteRuleStub = stub
 }
 
-func (fake *FakeFirewallsClient) DeleteBastionFirewallRuleArgsForCall(i int) (context.Context, *v1beta1.GCPCluster) {
-	fake.deleteBastionFirewallRuleMutex.RLock()
-	defer fake.deleteBastionFirewallRuleMutex.RUnlock()
-	argsForCall := fake.deleteBastionFirewallRuleArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+func (fake *FakeFirewallsClient) DeleteRuleArgsForCall(i int) (context.Context, *v1beta1.GCPCluster, string) {
+	fake.deleteRuleMutex.RLock()
+	defer fake.deleteRuleMutex.RUnlock()
+	argsForCall := fake.deleteRuleArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
 }
 
-func (fake *FakeFirewallsClient) DeleteBastionFirewallRuleReturns(result1 error) {
-	fake.deleteBastionFirewallRuleMutex.Lock()
-	defer fake.deleteBastionFirewallRuleMutex.Unlock()
-	fake.DeleteBastionFirewallRuleStub = nil
-	fake.deleteBastionFirewallRuleReturns = struct {
+func (fake *FakeFirewallsClient) DeleteRuleReturns(result1 error) {
+	fake.deleteRuleMutex.Lock()
+	defer fake.deleteRuleMutex.Unlock()
+	fake.DeleteRuleStub = nil
+	fake.deleteRuleReturns = struct {
 		result1 error
 	}{result1}
 }
 
-func (fake *FakeFirewallsClient) DeleteBastionFirewallRuleReturnsOnCall(i int, result1 error) {
-	fake.deleteBastionFirewallRuleMutex.Lock()
-	defer fake.deleteBastionFirewallRuleMutex.Unlock()
-	fake.DeleteBastionFirewallRuleStub = nil
-	if fake.deleteBastionFirewallRuleReturnsOnCall == nil {
-		fake.deleteBastionFirewallRuleReturnsOnCall = make(map[int]struct {
+func (fake *FakeFirewallsClient) DeleteRuleReturnsOnCall(i int, result1 error) {
+	fake.deleteRuleMutex.Lock()
+	defer fake.deleteRuleMutex.Unlock()
+	fake.DeleteRuleStub = nil
+	if fake.deleteRuleReturnsOnCall == nil {
+		fake.deleteRuleReturnsOnCall = make(map[int]struct {
 			result1 error
 		})
 	}
-	fake.deleteBastionFirewallRuleReturnsOnCall[i] = struct {
+	fake.deleteRuleReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }
@@ -166,10 +171,10 @@ func (fake *FakeFirewallsClient) DeleteBastionFirewallRuleReturnsOnCall(i int, r
 func (fake *FakeFirewallsClient) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.createBastionFirewallRuleMutex.RLock()
-	defer fake.createBastionFirewallRuleMutex.RUnlock()
-	fake.deleteBastionFirewallRuleMutex.RLock()
-	defer fake.deleteBastionFirewallRuleMutex.RUnlock()
+	fake.applyRuleMutex.RLock()
+	defer fake.applyRuleMutex.RUnlock()
+	fake.deleteRuleMutex.RLock()
+	defer fake.deleteRuleMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value
