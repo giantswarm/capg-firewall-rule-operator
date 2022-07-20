@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Do not error if bastion allowlist annotation is missing for backwards compatibility.
+
 ## [0.4.0] - 2022-07-20
 
 ### Changed

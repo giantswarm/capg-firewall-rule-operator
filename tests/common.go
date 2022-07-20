@@ -52,13 +52,15 @@ func DeleteFirewall(firewalls *compute.FirewallsClient, gcpProject, firewallName
 		Project:  gcpProject,
 	}
 
-	// Explicitly do not wait for the deletion to complete. This makes the
-	// tests significantly slower
-	_, err := firewalls.Delete(context.Background(), req)
+	op, err := firewalls.Delete(context.Background(), req)
 	Expect(err).WithOffset(1).To(Or(
 		Not(HaveOccurred()),
 		BeGoogleAPIErrorWithStatus(http.StatusNotFound),
 	))
+
+	if op != nil {
+		Expect(op.Wait(context.Background())).WithOffset(1).To(Succeed())
+	}
 }
 
 func DeleteNetwork(networks *compute.NetworksClient, gcpProject, networkName string) {

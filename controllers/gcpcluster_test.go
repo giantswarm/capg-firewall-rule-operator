@@ -190,8 +190,24 @@ var _ = Describe("GCPClusterReconciler", func() {
 		},
 		Entry("the annotation contains an invalid cidr", "128.0.0.0/24,random-string,192.168.0.0/24"),
 		Entry("the annotation is not a CSV list", "128.0.0.0/24 192.168.0.0/24"),
-		Entry("the annotation is an empty string", "128.0.0.0/24 192.168.0.0/24"),
+		Entry("the annotation is an empty string", ""),
 	)
+
+	When("the bastion allow list annotation is missing", func() {
+		BeforeEach(func() {
+			patchedCluster := gcpCluster.DeepCopy()
+			patchedCluster.Annotations = map[string]string{}
+			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
+		})
+
+		It("does not return an error", func() {
+			Expect(reconcileErr).NotTo(HaveOccurred())
+
+			Expect(firewallsClient.ApplyRuleCallCount()).To(Equal(1))
+			_, _, actualRule := firewallsClient.ApplyRuleArgsForCall(0)
+			Expect(actualRule.SourceRanges).To(BeZero())
+		})
+	})
 
 	When("the cluster does not exist", func() {
 		BeforeEach(func() {
