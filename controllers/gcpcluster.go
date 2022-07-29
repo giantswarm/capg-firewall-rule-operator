@@ -16,11 +16,13 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall"
+	"github.com/giantswarm/capg-firewall-rule-operator/pkg/security"
 )
 
 const (
 	FinalizerFirewall                 = "capg-firewall-rule-operator.finalizers.giantswarm.io"
 	AnnotationBastionAllowListSubnets = "bastion.gcp.giantswarm.io/allowlist"
+	AnnotationAPIAllowListSubnets     = "api.gcp.giantswarm.io/allowlist"
 )
 
 type GCPClusterClient interface {
@@ -36,17 +38,25 @@ type FirewallsClient interface {
 	DeleteRule(context.Context, *capg.GCPCluster, string) error
 }
 
-type GCPClusterReconciler struct {
-	logger         logr.Logger
-	client         GCPClusterClient
-	firewallClient FirewallsClient
+//counterfeiter:generate . SecurityPolicyClient
+type SecurityPolicyClient interface {
+	ApplyPolicy(context.Context, *capg.GCPCluster, security.Policy) error
+	DeletePolicy(context.Context, *capg.GCPCluster, string) error
 }
 
-func NewGCPClusterReconciler(logger logr.Logger, client GCPClusterClient, firewallClient FirewallsClient) *GCPClusterReconciler {
+type GCPClusterReconciler struct {
+	logger               logr.Logger
+	client               GCPClusterClient
+	firewallClient       FirewallsClient
+	securityPolicyClient SecurityPolicyClient
+}
+
+func NewGCPClusterReconciler(logger logr.Logger, client GCPClusterClient, firewallClient FirewallsClient, securityPolicyClient SecurityPolicyClient) *GCPClusterReconciler {
 	return &GCPClusterReconciler{
-		logger:         logger,
-		client:         client,
-		firewallClient: firewallClient,
+		logger:               logger,
+		client:               client,
+		firewallClient:       firewallClient,
+		securityPolicyClient: securityPolicyClient,
 	}
 }
 
@@ -115,7 +125,12 @@ func (r *GCPClusterReconciler) reconcileNormal(ctx context.Context, logger logr.
 		return ctrl.Result{}, errors.WithStack(err)
 	}
 
-	err = r.createBastionFirewallRule(ctx, logger, gcpCluster)
+	err = r.applyBastionFirewallRule(ctx, logger, gcpCluster)
+	if err != nil {
+		return ctrl.Result{}, errors.WithStack(err)
+	}
+
+	err = r.applyAPISecurityPolicy(ctx, logger, gcpCluster)
 	if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
 	}
@@ -129,6 +144,11 @@ func (r *GCPClusterReconciler) reconcileDelete(ctx context.Context, gcpCluster *
 		return ctrl.Result{}, errors.WithStack(err)
 	}
 
+	err = r.deleteAPISecurityPolicy(ctx, gcpCluster)
+	if err != nil {
+		return ctrl.Result{}, errors.WithStack(err)
+	}
+
 	err = r.client.RemoveFinalizer(ctx, gcpCluster, FinalizerFirewall)
 	if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
@@ -137,10 +157,38 @@ func (r *GCPClusterReconciler) reconcileDelete(ctx context.Context, gcpCluster *
 	return ctrl.Result{}, nil
 }
 
-func (r *GCPClusterReconciler) createBastionFirewallRule(ctx context.Context, logger logr.Logger, gcpCluster *capg.GCPCluster) error {
+func (r *GCPClusterReconciler) applyAPISecurityPolicy(ctx context.Context, logger logr.Logger, gcpCluster *capg.GCPCluster) error {
+	policyName := getAPISecurityPolicyName(gcpCluster.Name)
+	sourceIPRanges, err := getIPRangesFromAnnotation(logger, gcpCluster, AnnotationAPIAllowListSubnets)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	rules := []security.PolicyRule{}
+	if len(sourceIPRanges) != 0 {
+		rules = append(rules, security.PolicyRule{
+			Action:         security.ActionAllow,
+			Description:    "allow user specified ips to connect to kubernetes api",
+			SourceIPRanges: sourceIPRanges,
+			Priority:       0,
+		})
+	}
+
+	policy := security.Policy{
+		Name:          policyName,
+		Description:   "allow IPs to connect to kubernetes api",
+		DefaultAction: security.ActionDeny403,
+		Rules:         rules,
+	}
+
+	r.securityPolicyClient.ApplyPolicy(ctx, gcpCluster, policy)
+	return nil
+}
+
+func (r *GCPClusterReconciler) applyBastionFirewallRule(ctx context.Context, logger logr.Logger, gcpCluster *capg.GCPCluster) error {
 	ruleName := getBastionFirewallRuleName(gcpCluster.Name)
 	tagName := fmt.Sprintf("%s-bastion", gcpCluster.Name)
-	sourceIPRanges, err := getIPRangesFromAnnotation(logger, gcpCluster)
+	sourceIPRanges, err := getIPRangesFromAnnotation(logger, gcpCluster, AnnotationBastionAllowListSubnets)
 	if err != nil {
 		return errors.WithStack(err)
 	}
@@ -167,12 +215,21 @@ func (r *GCPClusterReconciler) deleteBastionFirewallRule(ctx context.Context, gc
 	return r.firewallClient.DeleteRule(ctx, gcpCluster, ruleName)
 }
 
+func (r *GCPClusterReconciler) deleteAPISecurityPolicy(ctx context.Context, gcpCluster *capg.GCPCluster) error {
+	policyName := getAPISecurityPolicyName(gcpCluster.Name)
+	return r.securityPolicyClient.DeletePolicy(ctx, gcpCluster, policyName)
+}
+
 func getBastionFirewallRuleName(clusterName string) string {
 	return fmt.Sprintf("allow-%s-bastion-ssh", clusterName)
 }
 
-func getIPRangesFromAnnotation(logger logr.Logger, gcpCluster *capg.GCPCluster) ([]string, error) {
-	annotation, ok := gcpCluster.Annotations[AnnotationBastionAllowListSubnets]
+func getAPISecurityPolicyName(clusterName string) string {
+	return fmt.Sprintf("allow-%s-apiserver", clusterName)
+}
+
+func getIPRangesFromAnnotation(logger logr.Logger, gcpCluster *capg.GCPCluster, annotation string) ([]string, error) {
+	annotation, ok := gcpCluster.Annotations[annotation]
 	if !ok {
 		logger.Info("Cluster does not have bastion allow list annotation. Using cloud default.")
 		return nil, nil

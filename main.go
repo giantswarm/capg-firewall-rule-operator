@@ -39,6 +39,7 @@ import (
 	"github.com/giantswarm/capg-firewall-rule-operator/controllers"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/k8sclient"
+	"github.com/giantswarm/capg-firewall-rule-operator/pkg/security"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -96,15 +97,36 @@ func main() {
 
 	gcpFwClient, err := gcpcompute.NewFirewallsRESTClient(context.Background())
 	if err != nil {
-		setupLog.Error(err, "failed to create Cloud Firewall Policies client")
+		setupLog.Error(err, "failed to create Cloud Firewall Rules client")
 		os.Exit(1)
 	}
 	defer gcpFwClient.Close()
 
+	gcpSecurityPolicyClient, err := gcpcompute.NewSecurityPoliciesRESTClient(context.Background())
+	if err != nil {
+		setupLog.Error(err, "failed to create Cloud Security Policies client")
+		os.Exit(1)
+	}
+	defer gcpSecurityPolicyClient.Close()
+
+	gcpBackendServicesClient, err := gcpcompute.NewBackendServicesRESTClient(context.Background())
+	if err != nil {
+		setupLog.Error(err, "failed to create Cloud Security Policies client")
+		os.Exit(1)
+	}
+	defer gcpBackendServicesClient.Close()
+
 	client := k8sclient.NewGCPCluster(mgr.GetClient())
 	firewallClient := firewall.NewClient(gcpFwClient)
+	securityPolicyClient := security.NewClient(gcpSecurityPolicyClient, gcpBackendServicesClient)
 
-	controller := controllers.NewGCPClusterReconciler(mgr.GetLogger(), client, firewallClient)
+	controller := controllers.NewGCPClusterReconciler(
+		mgr.GetLogger(),
+		client,
+		firewallClient,
+		securityPolicyClient,
+	)
+
 	err = controller.SetupWithManager(mgr)
 	if err != nil {
 		setupLog.Error(err, "failed to setup controller", "controller", "GCPCluster")
