@@ -19,6 +19,12 @@ import (
 	. "github.com/giantswarm/capg-firewall-rule-operator/tests/matchers"
 )
 
+const (
+	TestDescription = "test resource for capg-firewall-rule-operator"
+
+	instanceGroupZone = "europe-west3-a"
+)
+
 func GenerateGUID(prefix string) string {
 	guid := uuid.NewString()
 
@@ -63,6 +69,23 @@ func DeleteFirewall(firewalls *compute.FirewallsClient, gcpProject, firewallName
 	}
 }
 
+func DeleteSecurityPolicy(securityPolicies *compute.SecurityPoliciesClient, gcpProject, name string) {
+	req := &computepb.DeleteSecurityPolicyRequest{
+		Project:        gcpProject,
+		SecurityPolicy: name,
+	}
+
+	op, err := securityPolicies.Delete(context.Background(), req)
+	Expect(err).WithOffset(1).To(Or(
+		Not(HaveOccurred()),
+		BeGoogleAPIErrorWithStatus(http.StatusNotFound),
+	))
+
+	if op != nil {
+		Expect(op.Wait(context.Background())).WithOffset(1).To(Succeed())
+	}
+}
+
 func DeleteNetwork(networks *compute.NetworksClient, gcpProject, networkName string) {
 	req := &computepb.DeleteNetworkRequest{
 		Network: networkName,
@@ -82,7 +105,7 @@ func CreateNetwork(networks *compute.NetworksClient, gcpProject, networkName str
 	ctx := context.Background()
 	network := &computepb.Network{
 		AutoCreateSubnetworks: to.BoolP(false),
-		Description:           to.StringP("firewall operator test network"),
+		Description:           to.StringP(TestDescription),
 		Name:                  to.StringP(networkName),
 	}
 
@@ -104,4 +127,134 @@ func CreateNetwork(networks *compute.NetworksClient, gcpProject, networkName str
 	Expect(network.SelfLink).NotTo(BeNil())
 
 	return network
+}
+
+func CreateInstanceGroup(instanceGroups *compute.InstanceGroupsClient, gcpProject, name string) *computepb.InstanceGroup {
+	ctx := context.Background()
+
+	instanceGroupsReq := &computepb.InsertInstanceGroupRequest{
+		InstanceGroupResource: &computepb.InstanceGroup{
+			Description: to.StringP(TestDescription),
+			Name:        to.StringP(name),
+		},
+		Project: gcpProject,
+		Zone:    instanceGroupZone,
+	}
+	_, err := instanceGroups.Insert(ctx, instanceGroupsReq)
+	Expect(err).WithOffset(1).NotTo(HaveOccurred())
+
+	getReq := &computepb.GetInstanceGroupRequest{
+		InstanceGroup: name,
+		Project:       gcpProject,
+		Zone:          instanceGroupZone,
+	}
+	instanceGroup, err := instanceGroups.Get(ctx, getReq)
+	Expect(err).WithOffset(1).NotTo(HaveOccurred())
+
+	return instanceGroup
+}
+
+func DeleteInstanceGroup(instanceGroups *compute.InstanceGroupsClient, gcpProject, name string) {
+	req := &computepb.DeleteInstanceGroupRequest{
+		InstanceGroup: name,
+		Project:       gcpProject,
+		Zone:          instanceGroupZone,
+	}
+
+	_, err := instanceGroups.Delete(context.Background(), req)
+	Expect(err).WithOffset(1).To(Or(
+		Not(HaveOccurred()),
+		BeGoogleAPIErrorWithStatus(http.StatusNotFound),
+	))
+}
+
+func CreateHealthCheck(healthChecks *compute.HealthChecksClient, gcpProject, name string) *computepb.HealthCheck {
+	ctx := context.Background()
+
+	req := &computepb.InsertHealthCheckRequest{
+		HealthCheckResource: &computepb.HealthCheck{
+			Name:        to.StringP(name),
+			Description: to.StringP(TestDescription),
+			TcpHealthCheck: &computepb.TCPHealthCheck{
+				Port:              to.Int32P(8080),
+				PortSpecification: new(string),
+			},
+			Type: to.StringP("TCP"),
+		},
+		Project: gcpProject,
+	}
+	_, err := healthChecks.Insert(ctx, req)
+	Expect(err).WithOffset(1).NotTo(HaveOccurred())
+
+	getReq := &computepb.GetHealthCheckRequest{
+		HealthCheck: name,
+		Project:     gcpProject,
+	}
+	healthCheck, err := healthChecks.Get(ctx, getReq)
+	Expect(err).WithOffset(1).NotTo(HaveOccurred())
+
+	return healthCheck
+}
+
+func DeleteHealthCheck(healthChecks *compute.HealthChecksClient, gcpProject, name string) {
+	req := &computepb.DeleteHealthCheckRequest{
+		HealthCheck: name,
+		Project:     gcpProject,
+	}
+
+	_, err := healthChecks.Delete(context.Background(), req)
+	Expect(err).WithOffset(1).To(Or(
+		Not(HaveOccurred()),
+		BeGoogleAPIErrorWithStatus(http.StatusNotFound),
+	))
+}
+
+func CreateBackendService(backendServices *compute.BackendServicesClient, instanceGroup *computepb.InstanceGroup, healthCheck *computepb.HealthCheck, gcpProject, name string) *computepb.BackendService {
+	ctx := context.Background()
+
+	req := &computepb.InsertBackendServiceRequest{
+		BackendServiceResource: &computepb.BackendService{
+			Backends: []*computepb.Backend{{
+				Description: to.StringP(TestDescription),
+				Group:       instanceGroup.SelfLink,
+			}},
+			Description:         to.StringP(TestDescription),
+			LoadBalancingScheme: to.StringP("EXTERNAL"),
+			Name:                to.StringP(name),
+			Protocol:            to.StringP("HTTP"),
+			HealthChecks: []string{
+				*healthCheck.SelfLink,
+			},
+		},
+		Project: gcpProject,
+	}
+	op, err := backendServices.Insert(ctx, req)
+	Expect(err).WithOffset(1).NotTo(HaveOccurred())
+	Expect(op.Wait(context.Background())).WithOffset(1).To(Succeed())
+
+	getReq := &computepb.GetBackendServiceRequest{
+		BackendService: name,
+		Project:        gcpProject,
+	}
+	backendService, err := backendServices.Get(ctx, getReq)
+	Expect(err).WithOffset(1).NotTo(HaveOccurred())
+
+	return backendService
+}
+
+func DeleteBackendService(backendServices *compute.BackendServicesClient, gcpProject, name string) {
+	req := &computepb.DeleteBackendServiceRequest{
+		BackendService: name,
+		Project:        gcpProject,
+	}
+
+	op, err := backendServices.Delete(context.Background(), req)
+	Expect(err).WithOffset(1).To(Or(
+		Not(HaveOccurred()),
+		BeGoogleAPIErrorWithStatus(http.StatusNotFound),
+	))
+
+	if op != nil {
+		Expect(op.Wait(context.Background())).WithOffset(1).To(Succeed())
+	}
 }
