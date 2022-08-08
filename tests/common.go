@@ -140,8 +140,9 @@ func CreateInstanceGroup(instanceGroups *compute.InstanceGroupsClient, gcpProjec
 		Project: gcpProject,
 		Zone:    instanceGroupZone,
 	}
-	_, err := instanceGroups.Insert(ctx, instanceGroupsReq)
+	op, err := instanceGroups.Insert(ctx, instanceGroupsReq)
 	Expect(err).WithOffset(1).NotTo(HaveOccurred())
+	Expect(op.Wait(ctx)).WithOffset(1).To(Succeed())
 
 	getReq := &computepb.GetInstanceGroupRequest{
 		InstanceGroup: name,
