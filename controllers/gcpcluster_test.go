@@ -216,7 +216,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 			})
 
 			It("returns an error", func() {
-				Expect(reconcileErr).To(HaveOccurred())
+				Expect(reconcileErr).To(MatchError(ContainSubstring("boom")))
 			})
 
 			It("does not remove the finalizer", func() {
@@ -405,6 +405,16 @@ var _ = Describe("GCPClusterReconciler", func() {
 	When("the firewall client fails", func() {
 		BeforeEach(func() {
 			firewallsClient.ApplyRuleReturns(errors.New("boom"))
+		})
+
+		It("returns an error", func() {
+			Expect(reconcileErr).To(MatchError(ContainSubstring("boom")))
+		})
+	})
+
+	When("the security policy client fails", func() {
+		BeforeEach(func() {
+			securityPolicyClient.ApplyPolicyReturns(errors.New("boom"))
 		})
 
 		It("returns an error", func() {

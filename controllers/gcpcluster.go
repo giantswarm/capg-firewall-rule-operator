@@ -181,8 +181,7 @@ func (r *GCPClusterReconciler) applyAPISecurityPolicy(ctx context.Context, logge
 		Rules:         rules,
 	}
 
-	r.securityPolicyClient.ApplyPolicy(ctx, gcpCluster, policy)
-	return nil
+	return r.securityPolicyClient.ApplyPolicy(ctx, gcpCluster, policy)
 }
 
 func (r *GCPClusterReconciler) applyBastionFirewallRule(ctx context.Context, logger logr.Logger, gcpCluster *capg.GCPCluster) error {
