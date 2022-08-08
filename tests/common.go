@@ -184,8 +184,9 @@ func CreateHealthCheck(healthChecks *compute.HealthChecksClient, gcpProject, nam
 		},
 		Project: gcpProject,
 	}
-	_, err := healthChecks.Insert(ctx, req)
+	op, err := healthChecks.Insert(ctx, req)
 	Expect(err).WithOffset(1).NotTo(HaveOccurred())
+	Expect(op.Wait(ctx)).WithOffset(1).To(Succeed())
 
 	getReq := &computepb.GetHealthCheckRequest{
 		HealthCheck: name,
