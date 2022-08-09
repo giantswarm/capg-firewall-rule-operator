@@ -35,8 +35,6 @@ var _ = Describe("Firewalls", func() {
 		firewalls        *compute.FirewallsClient
 		securityPolicies *compute.SecurityPoliciesClient
 		backendServices  *compute.BackendServicesClient
-		instanceGroups   *compute.InstanceGroupsClient
-		healthChecks     *compute.HealthChecksClient
 
 		name               string
 		firewallName       string
@@ -81,19 +79,11 @@ var _ = Describe("Firewalls", func() {
 		securityPolicies, err = compute.NewSecurityPoliciesRESTClient(ctx)
 		Expect(err).NotTo(HaveOccurred())
 
-		instanceGroups, err = compute.NewInstanceGroupsRESTClient(ctx)
-		Expect(err).NotTo(HaveOccurred())
-
-		healthChecks, err = compute.NewHealthChecksRESTClient(ctx)
-		Expect(err).NotTo(HaveOccurred())
-
 		backendServices, err = compute.NewBackendServicesRESTClient(ctx)
 		Expect(err).NotTo(HaveOccurred())
 
 		network = tests.CreateNetwork(networks, gcpProject, name)
-		instanceGroup := tests.CreateInstanceGroup(instanceGroups, gcpProject, name)
-		healthCheck := tests.CreateHealthCheck(healthChecks, gcpProject, name)
-		backendService := tests.CreateBackendService(backendServices, instanceGroup, healthCheck, gcpProject, name)
+		backendService := tests.CreateBackendService(backendServices, gcpProject, name)
 
 		gcpCluster = &capg.GCPCluster{
 			ObjectMeta: metav1.ObjectMeta{
@@ -135,8 +125,6 @@ var _ = Describe("Firewalls", func() {
 
 		tests.DeleteBackendService(backendServices, gcpProject, name)
 		tests.DeleteSecurityPolicy(securityPolicies, gcpProject, securityPolicyName)
-		tests.DeleteHealthCheck(healthChecks, gcpProject, name)
-		tests.DeleteInstanceGroup(instanceGroups, gcpProject, name)
 	})
 
 	When("the cluster is created", func() {

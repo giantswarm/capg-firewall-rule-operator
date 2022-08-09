@@ -25,8 +25,6 @@ var _ = Describe("Client", func() {
 
 		securityPolicies *compute.SecurityPoliciesClient
 		backendServices  *compute.BackendServicesClient
-		instanceGroups   *compute.InstanceGroupsClient
-		healthChecks     *compute.HealthChecksClient
 		client           *security.Client
 
 		cluster *capg.GCPCluster
@@ -45,18 +43,10 @@ var _ = Describe("Client", func() {
 		securityPolicies, err = compute.NewSecurityPoliciesRESTClient(ctx)
 		Expect(err).NotTo(HaveOccurred())
 
-		instanceGroups, err = compute.NewInstanceGroupsRESTClient(ctx)
-		Expect(err).NotTo(HaveOccurred())
-
-		healthChecks, err = compute.NewHealthChecksRESTClient(ctx)
-		Expect(err).NotTo(HaveOccurred())
-
 		backendServices, err = compute.NewBackendServicesRESTClient(ctx)
 		Expect(err).NotTo(HaveOccurred())
 
-		instanceGroup := tests.CreateInstanceGroup(instanceGroups, gcpProject, name)
-		healthCheck := tests.CreateHealthCheck(healthChecks, gcpProject, name)
-		backendService := tests.CreateBackendService(backendServices, instanceGroup, healthCheck, gcpProject, name)
+		backendService := tests.CreateBackendService(backendServices, gcpProject, name)
 
 		cluster = &capg.GCPCluster{
 			Spec: capg.GCPClusterSpec{
@@ -95,8 +85,6 @@ var _ = Describe("Client", func() {
 		// it will not return an error, but still not delete the resource
 		tests.DeleteBackendService(backendServices, gcpProject, name)
 		tests.DeleteSecurityPolicy(securityPolicies, gcpProject, name)
-		tests.DeleteHealthCheck(healthChecks, gcpProject, name)
-		tests.DeleteInstanceGroup(instanceGroups, gcpProject, name)
 	})
 
 	Describe("ApplyRule", func() {
@@ -249,7 +237,7 @@ var _ = Describe("Client", func() {
 			Expect(err).NotTo(HaveOccurred())
 		})
 
-		It("deletes the securityPolicy", func() {
+		It("deletes the security policy", func() {
 			getSecurityPolicy := &computepb.GetSecurityPolicyRequest{
 				Project:        gcpProject,
 				SecurityPolicy: name,
