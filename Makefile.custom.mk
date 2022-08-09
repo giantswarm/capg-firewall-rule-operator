@@ -99,7 +99,7 @@ test-integration: ginkgo ensure-gcp-envs ## Run integration tests
 test-acceptance: KUBECONFIG=$(HOME)/.kube/$(CLUSTER).yml
 test-acceptance: ginkgo ensure-gcp-envs deploy-acceptance-cluster ## Run acceptance testst
 	$(eval GOOGLE_APPLICATION_CREDENTIALS=$(shell ${PWD}/scripts/create-gcp-credentials-file.sh))
-	GOOGLE_APPLICATION_CREDENTIALS=$(GOOGLE_APPLICATION_CREDENTIALS) KUBECONFIG="$(KUBECONFIG)" $(GINKGO) -p -nodes 2 -r -randomize-all --randomize-suites --slow-spec-threshold "30s" tests/acceptance
+	GOOGLE_APPLICATION_CREDENTIALS=$(GOOGLE_APPLICATION_CREDENTIALS) KUBECONFIG="$(KUBECONFIG)" $(GINKGO) -p -r -randomize-all --randomize-suites --slow-spec-threshold "30s" tests/acceptance
 	rm $(GOOGLE_APPLICATION_CREDENTIALS)
 
 .PHONY: test-all
