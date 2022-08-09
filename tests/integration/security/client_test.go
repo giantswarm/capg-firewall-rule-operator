@@ -127,7 +127,7 @@ var _ = Describe("Client", func() {
 				"172.158.0.0/24",
 			))
 
-			By("creating the rules in the policy")
+			By("creating the default rule in the policy")
 			defaultRule := securityPolicy.Rules[1]
 			Expect(*defaultRule.Action).To(Equal(security.ActionDeny403))
 			Expect(*defaultRule.Description).To(Equal(security.DefaultRuleDescription))

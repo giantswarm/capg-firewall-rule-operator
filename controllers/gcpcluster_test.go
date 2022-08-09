@@ -57,7 +57,6 @@ var _ = Describe("GCPClusterReconciler", func() {
 			securityPolicyClient,
 		)
 
-		selfLink := "something"
 		cluster = &capi.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "the-cluster",
@@ -92,7 +91,8 @@ var _ = Describe("GCPClusterReconciler", func() {
 		status := capg.GCPClusterStatus{
 			Ready: true,
 			Network: capg.Network{
-				SelfLink: &selfLink,
+				SelfLink:                to.StringP("something"),
+				APIServerBackendService: to.StringP("something"),
 			},
 		}
 		patchClusterStatus(gcpCluster, status)
@@ -190,6 +190,49 @@ var _ = Describe("GCPClusterReconciler", func() {
 			Expect(actualCluster.Name).To(Equal("the-gcp-cluster"))
 			Expect(*actualCluster.Status.Network.SelfLink).To(Equal("something"))
 			Expect(actualPolicy).To(Equal("allow-the-gcp-cluster-apiserver"))
+		})
+
+		When("the cluster does not have Status.Network set", func() {
+			BeforeEach(func() {
+				status := capg.GCPClusterStatus{Ready: true}
+				patchClusterStatus(gcpCluster, status)
+			})
+
+			It("removes the firewall rule", func() {
+				Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(1))
+			})
+
+			When("the Status.Network.SelfLink is empty", func() {
+				BeforeEach(func() {
+					status := capg.GCPClusterStatus{
+						Ready: true,
+						Network: capg.Network{
+							SelfLink: to.StringP(""),
+						},
+					}
+					patchClusterStatus(gcpCluster, status)
+				})
+
+				It("removes the firewall rule", func() {
+					Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(1))
+				})
+			})
+
+			When("the Status.Network.APIServerBackendService is empty", func() {
+				BeforeEach(func() {
+					status := capg.GCPClusterStatus{
+						Ready: true,
+						Network: capg.Network{
+							APIServerBackendService: to.StringP(""),
+						},
+					}
+					patchClusterStatus(gcpCluster, status)
+				})
+
+				It("removes the firewall rule", func() {
+					Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(1))
+				})
+			})
 		})
 
 		When("the firewall client fails", func() {
@@ -335,7 +378,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 		})
 	})
 
-	When("the cluster does not have Status.Network.SelfLink set yet", func() {
+	When("the cluster does not have Status.Network set yet", func() {
 		BeforeEach(func() {
 			status := capg.GCPClusterStatus{Ready: true}
 			patchClusterStatus(gcpCluster, status)
@@ -355,7 +398,30 @@ var _ = Describe("GCPClusterReconciler", func() {
 				status := capg.GCPClusterStatus{
 					Ready: true,
 					Network: capg.Network{
-						SelfLink: to.StringP(""),
+						SelfLink:         to.StringP(""),
+						APIServerAddress: to.StringP("something"),
+					},
+				}
+				patchClusterStatus(gcpCluster, status)
+			})
+
+			It("does not requeue the event", func() {
+				Expect(result.Requeue).To(BeFalse())
+				Expect(result.RequeueAfter).To(BeZero())
+				Expect(reconcileErr).NotTo(HaveOccurred())
+
+				Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(0))
+				Expect(firewallsClient.ApplyRuleCallCount()).To(Equal(0))
+			})
+		})
+
+		When("the Status.Network.APIServerBackendService is empty", func() {
+			BeforeEach(func() {
+				status := capg.GCPClusterStatus{
+					Ready: true,
+					Network: capg.Network{
+						SelfLink:         to.StringP("something"),
+						APIServerAddress: to.StringP(""),
 					},
 				}
 				patchClusterStatus(gcpCluster, status)

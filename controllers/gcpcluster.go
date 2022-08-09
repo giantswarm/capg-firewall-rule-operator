@@ -92,11 +92,6 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, nil
 	}
 
-	if gcpCluster.Status.Network.SelfLink == nil || *gcpCluster.Status.Network.SelfLink == "" {
-		logger.Info("GCP Cluster does not have network set yet")
-		return ctrl.Result{}, nil
-	}
-
 	if annotations.IsPaused(cluster, gcpCluster) {
 		logger.Info("Infrastructure or core cluster is marked as paused. Won't reconcile")
 		return ctrl.Result{}, nil
@@ -120,6 +115,16 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 }
 
 func (r *GCPClusterReconciler) reconcileNormal(ctx context.Context, logger logr.Logger, gcpCluster *capg.GCPCluster) (ctrl.Result, error) {
+	if gcpCluster.Status.Network.SelfLink == nil || *gcpCluster.Status.Network.SelfLink == "" {
+		logger.Info("GCP Cluster does not have network set yet")
+		return ctrl.Result{}, nil
+	}
+
+	if gcpCluster.Status.Network.APIServerBackendService == nil || *gcpCluster.Status.Network.APIServerBackendService == "" {
+		logger.Info("GCP Cluster does not have backend service set yet")
+		return ctrl.Result{}, nil
+	}
+
 	err := r.client.AddFinalizer(ctx, gcpCluster, FinalizerFirewall)
 	if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)

@@ -250,8 +250,12 @@ func DeleteBackendService(backendServices *compute.BackendServicesClient, gcpPro
 		Project:        gcpProject,
 	}
 
-	op, err := backendServices.Delete(context.Background(), req)
-	Expect(err).WithOffset(1).To(Or(
+	var op *compute.Operation
+	Eventually(func() error {
+		var err error
+		op, err = backendServices.Delete(context.Background(), req)
+		return err
+	}).WithOffset(1).Should(Or(
 		Not(HaveOccurred()),
 		BeGoogleAPIErrorWithStatus(http.StatusNotFound),
 	))
