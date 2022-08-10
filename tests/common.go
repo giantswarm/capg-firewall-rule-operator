@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -17,6 +18,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	. "github.com/giantswarm/capg-firewall-rule-operator/tests/matchers"
+)
+
+const (
+	TestDescription = "test resource for capg-firewall-rule-operator"
+
+	defaultNetworkName     = "default"
+	backendServiceRegion   = "europe-west3"
+	backendServiceProtocol = "TCP"
 )
 
 func GenerateGUID(prefix string) string {
@@ -52,56 +61,99 @@ func DeleteFirewall(firewalls *compute.FirewallsClient, gcpProject, firewallName
 		Project:  gcpProject,
 	}
 
-	op, err := firewalls.Delete(context.Background(), req)
+	_, err := firewalls.Delete(context.Background(), req)
 	Expect(err).WithOffset(1).To(Or(
+		Not(HaveOccurred()),
+		BeGoogleAPIErrorWithStatus(http.StatusNotFound),
+	))
+}
+
+func DeleteSecurityPolicy(securityPolicies *compute.SecurityPoliciesClient, gcpProject, name string) {
+	req := &computepb.DeleteSecurityPolicyRequest{
+		Project:        gcpProject,
+		SecurityPolicy: name,
+	}
+
+	_, err := securityPolicies.Delete(context.Background(), req)
+	Expect(err).WithOffset(1).To(Or(
+		Not(HaveOccurred()),
+		BeGoogleAPIErrorWithStatus(http.StatusNotFound),
+	))
+}
+
+func GetDefaultNetwork(networks *compute.NetworksClient, gcpProject, networkName string) *computepb.Network {
+	ctx := context.Background()
+
+	getReq := &computepb.GetNetworkRequest{
+		Network: defaultNetworkName,
+		Project: gcpProject,
+	}
+	network, err := networks.Get(ctx, getReq)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(network.SelfLink).NotTo(BeNil())
+
+	return network
+}
+
+func CreateBackendService(backendServices *compute.BackendServicesClient, gcpProject, name string) *computepb.BackendService {
+	ctx := context.Background()
+
+	req := &computepb.InsertBackendServiceRequest{
+		BackendServiceResource: &computepb.BackendService{
+			Backends:    []*computepb.Backend{},
+			Description: to.StringP(TestDescription),
+			Name:        to.StringP(name),
+			Protocol:    to.StringP(backendServiceProtocol),
+			Region:      to.StringP(backendServiceRegion),
+		},
+		Project: gcpProject,
+	}
+	op, err := backendServices.Insert(ctx, req)
+	Expect(err).WithOffset(1).NotTo(HaveOccurred())
+	waitOnOperation(op)
+
+	getReq := &computepb.GetBackendServiceRequest{
+		BackendService: name,
+		Project:        gcpProject,
+	}
+	backendService, err := backendServices.Get(ctx, getReq)
+	Expect(err).WithOffset(1).NotTo(HaveOccurred())
+
+	return backendService
+}
+
+func DeleteBackendService(backendServices *compute.BackendServicesClient, gcpProject, name string) {
+	req := &computepb.DeleteBackendServiceRequest{
+		BackendService: name,
+		Project:        gcpProject,
+	}
+
+	var op *compute.Operation
+	Eventually(func() error {
+		var err error
+		op, err = backendServices.Delete(context.Background(), req)
+		return err
+	}).WithOffset(1).Should(Or(
 		Not(HaveOccurred()),
 		BeGoogleAPIErrorWithStatus(http.StatusNotFound),
 	))
 
 	if op != nil {
-		Expect(op.Wait(context.Background())).WithOffset(1).To(Succeed())
+		waitOnOperation(op)
 	}
 }
 
-func DeleteNetwork(networks *compute.NetworksClient, gcpProject, networkName string) {
-	req := &computepb.DeleteNetworkRequest{
-		Network: networkName,
-		Project: gcpProject,
-	}
+func waitOnOperation(operation *compute.Operation) {
+	Eventually(func() error {
+		err := operation.Poll(context.Background())
+		if err != nil {
+			return err
+		}
 
-	// Explicitly do not wait for the deletion to complete. This makes the
-	// tests significantly slower
-	_, err := networks.Delete(context.Background(), req)
-	Expect(err).WithOffset(1).To(Or(
-		Not(HaveOccurred()),
-		BeGoogleAPIErrorWithStatus(http.StatusNotFound),
-	))
-}
+		if operation.Done() {
+			return nil
+		}
 
-func CreateNetwork(networks *compute.NetworksClient, gcpProject, networkName string) *computepb.Network {
-	ctx := context.Background()
-	network := &computepb.Network{
-		AutoCreateSubnetworks: to.BoolP(false),
-		Description:           to.StringP("firewall operator test network"),
-		Name:                  to.StringP(networkName),
-	}
-
-	insertReq := &computepb.InsertNetworkRequest{
-		NetworkResource: network,
-		Project:         gcpProject,
-	}
-
-	op, err := networks.Insert(ctx, insertReq)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(op.Wait(ctx)).To(Succeed())
-
-	getReq := &computepb.GetNetworkRequest{
-		Network: networkName,
-		Project: gcpProject,
-	}
-	network, err = networks.Get(ctx, getReq)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(network.SelfLink).NotTo(BeNil())
-
-	return network
+		return errors.New("operation not done")
+	}).Should(Succeed())
 }

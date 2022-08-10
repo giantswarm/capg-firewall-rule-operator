@@ -22,15 +22,17 @@ import (
 	"github.com/giantswarm/capg-firewall-rule-operator/controllers/controllersfakes"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/k8sclient"
+	"github.com/giantswarm/capg-firewall-rule-operator/pkg/security"
 )
 
 var _ = Describe("GCPClusterReconciler", func() {
 	var (
 		ctx context.Context
 
-		reconciler      *controllers.GCPClusterReconciler
-		clusterClient   controllers.GCPClusterClient
-		firewallsClient *controllersfakes.FakeFirewallsClient
+		reconciler           *controllers.GCPClusterReconciler
+		clusterClient        controllers.GCPClusterClient
+		firewallsClient      *controllersfakes.FakeFirewallsClient
+		securityPolicyClient *controllersfakes.FakeSecurityPolicyClient
 
 		cluster    *capi.Cluster
 		gcpCluster *capg.GCPCluster
@@ -46,14 +48,15 @@ var _ = Describe("GCPClusterReconciler", func() {
 
 		clusterClient = k8sclient.NewGCPCluster(k8sClient)
 		firewallsClient = new(controllersfakes.FakeFirewallsClient)
+		securityPolicyClient = new(controllersfakes.FakeSecurityPolicyClient)
 
 		reconciler = controllers.NewGCPClusterReconciler(
 			logger,
 			clusterClient,
 			firewallsClient,
+			securityPolicyClient,
 		)
 
-		selfLink := "something"
 		cluster = &capi.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "the-cluster",
@@ -68,6 +71,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 				Namespace: namespace,
 				Annotations: map[string]string{
 					controllers.AnnotationBastionAllowListSubnets: "128.0.0.0/24,192.168.0.0/24",
+					controllers.AnnotationAPIAllowListSubnets:     "10.0.0.0/24,172.158.0.0/24",
 				},
 				OwnerReferences: []metav1.OwnerReference{
 					{
@@ -87,7 +91,8 @@ var _ = Describe("GCPClusterReconciler", func() {
 		status := capg.GCPClusterStatus{
 			Ready: true,
 			Network: capg.Network{
-				SelfLink: &selfLink,
+				SelfLink:                to.StringP("something"),
+				APIServerBackendService: to.StringP("something"),
 			},
 		}
 		patchClusterStatus(gcpCluster, status)
@@ -112,7 +117,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 		Expect(actualCluster.Finalizers).To(ContainElement(controllers.FinalizerFirewall))
 	})
 
-	It("uses the firewall client to create firewall rules for the cluster", func() {
+	It("uses the firewall client to create firewall rules for the bastions", func() {
 		Expect(firewallsClient.ApplyRuleCallCount()).To(Equal(1))
 
 		_, actualCluster, actualRule := firewallsClient.ApplyRuleArgsForCall(0)
@@ -128,6 +133,26 @@ var _ = Describe("GCPClusterReconciler", func() {
 		Expect(actualRule.Name).To(Equal("allow-the-gcp-cluster-bastion-ssh"))
 		Expect(actualRule.TargetTags).To(Equal([]string{"the-gcp-cluster-bastion"}))
 		Expect(actualRule.SourceRanges).To(Equal([]string{"128.0.0.0/24", "192.168.0.0/24"}))
+	})
+
+	It("uses the security policy client to create security policies for the kubernetes api", func() {
+		Expect(securityPolicyClient.ApplyPolicyCallCount()).To(Equal(1))
+
+		_, actualCluster, actualPolicy := securityPolicyClient.ApplyPolicyArgsForCall(0)
+		Expect(actualCluster.Name).To(Equal("the-gcp-cluster"))
+		Expect(*actualCluster.Status.Network.SelfLink).To(Equal("something"))
+		Expect(actualPolicy.Name).To(Equal("allow-the-gcp-cluster-apiserver"))
+		Expect(actualPolicy.Description).To(Equal("allow IPs to connect to kubernetes api"))
+		Expect(actualPolicy.DefaultAction).To(Equal(security.ActionDeny403))
+		Expect(actualPolicy.Rules).To(ConsistOf(security.PolicyRule{
+			Action:      security.ActionAllow,
+			Description: "allow user specified ips to connect to kubernetes api",
+			SourceIPRanges: []string{
+				"10.0.0.0/24",
+				"172.158.0.0/24",
+			},
+			Priority: 0,
+		}))
 	})
 
 	When("the gcp cluster is marked for deletion", func() {
@@ -158,6 +183,58 @@ var _ = Describe("GCPClusterReconciler", func() {
 			Expect(actualRule).To(Equal("allow-the-gcp-cluster-bastion-ssh"))
 		})
 
+		It("uses the firewall client to remove firewall rules", func() {
+			Expect(securityPolicyClient.DeletePolicyCallCount()).To(Equal(1))
+
+			_, actualCluster, actualPolicy := securityPolicyClient.DeletePolicyArgsForCall(0)
+			Expect(actualCluster.Name).To(Equal("the-gcp-cluster"))
+			Expect(*actualCluster.Status.Network.SelfLink).To(Equal("something"))
+			Expect(actualPolicy).To(Equal("allow-the-gcp-cluster-apiserver"))
+		})
+
+		When("the cluster does not have Status.Network set", func() {
+			BeforeEach(func() {
+				status := capg.GCPClusterStatus{Ready: true}
+				patchClusterStatus(gcpCluster, status)
+			})
+
+			It("removes the firewall rule", func() {
+				Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(1))
+			})
+
+			When("the Status.Network.SelfLink is empty", func() {
+				BeforeEach(func() {
+					status := capg.GCPClusterStatus{
+						Ready: true,
+						Network: capg.Network{
+							SelfLink: to.StringP(""),
+						},
+					}
+					patchClusterStatus(gcpCluster, status)
+				})
+
+				It("removes the firewall rule", func() {
+					Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(1))
+				})
+			})
+
+			When("the Status.Network.APIServerBackendService is empty", func() {
+				BeforeEach(func() {
+					status := capg.GCPClusterStatus{
+						Ready: true,
+						Network: capg.Network{
+							APIServerBackendService: to.StringP(""),
+						},
+					}
+					patchClusterStatus(gcpCluster, status)
+				})
+
+				It("removes the firewall rule", func() {
+					Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(1))
+				})
+			})
+		})
+
 		When("the firewall client fails", func() {
 			BeforeEach(func() {
 				firewallsClient.DeleteRuleReturns(errors.New("boom"))
@@ -165,6 +242,24 @@ var _ = Describe("GCPClusterReconciler", func() {
 
 			It("returns an error", func() {
 				Expect(reconcileErr).To(HaveOccurred())
+			})
+
+			It("does not remove the finalizer", func() {
+				actualCluster := &capg.GCPCluster{}
+				err := k8sClient.Get(ctx, request.NamespacedName, actualCluster)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(actualCluster.Finalizers).To(ContainElement(controllers.FinalizerFirewall))
+			})
+		})
+
+		When("the security policy client fails", func() {
+			BeforeEach(func() {
+				securityPolicyClient.DeletePolicyReturns(errors.New("boom"))
+			})
+
+			It("returns an error", func() {
+				Expect(reconcileErr).To(MatchError(ContainSubstring("boom")))
 			})
 
 			It("does not remove the finalizer", func() {
@@ -193,10 +288,28 @@ var _ = Describe("GCPClusterReconciler", func() {
 		Entry("the annotation is an empty string", ""),
 	)
 
+	DescribeTable("when the apiserver allowlist annotation is invalid",
+		func(annotation string) {
+			patchedCluster := gcpCluster.DeepCopy()
+			patchedCluster.Annotations = map[string]string{
+				controllers.AnnotationAPIAllowListSubnets: annotation,
+			}
+			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
+
+			_, err := reconciler.Reconcile(ctx, request)
+			Expect(err).To(HaveOccurred())
+		},
+		Entry("the annotation contains an invalid cidr", "128.0.0.0/24,random-string,192.168.0.0/24"),
+		Entry("the annotation is not a CSV list", "128.0.0.0/24 192.168.0.0/24"),
+		Entry("the annotation is an empty string", ""),
+	)
+
 	When("the bastion allow list annotation is missing", func() {
 		BeforeEach(func() {
 			patchedCluster := gcpCluster.DeepCopy()
-			patchedCluster.Annotations = map[string]string{}
+			patchedCluster.Annotations = map[string]string{
+				controllers.AnnotationAPIAllowListSubnets: "10.0.0.0/24",
+			}
 			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
 		})
 
@@ -206,6 +319,24 @@ var _ = Describe("GCPClusterReconciler", func() {
 			Expect(firewallsClient.ApplyRuleCallCount()).To(Equal(1))
 			_, _, actualRule := firewallsClient.ApplyRuleArgsForCall(0)
 			Expect(actualRule.SourceRanges).To(BeZero())
+		})
+	})
+
+	When("the api allow list annotation is missing", func() {
+		BeforeEach(func() {
+			patchedCluster := gcpCluster.DeepCopy()
+			patchedCluster.Annotations = map[string]string{
+				controllers.AnnotationBastionAllowListSubnets: "10.0.0.0/24",
+			}
+			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
+		})
+
+		It("does not return an error", func() {
+			Expect(reconcileErr).NotTo(HaveOccurred())
+
+			Expect(securityPolicyClient.ApplyPolicyCallCount()).To(Equal(1))
+			_, _, actualPolicy := securityPolicyClient.ApplyPolicyArgsForCall(0)
+			Expect(actualPolicy.Rules).To(BeEmpty())
 		})
 	})
 
@@ -247,7 +378,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 		})
 	})
 
-	When("the cluster does not have Status.Network.SelfLink set yet", func() {
+	When("the cluster does not have Status.Network set yet", func() {
 		BeforeEach(func() {
 			status := capg.GCPClusterStatus{Ready: true}
 			patchClusterStatus(gcpCluster, status)
@@ -267,7 +398,30 @@ var _ = Describe("GCPClusterReconciler", func() {
 				status := capg.GCPClusterStatus{
 					Ready: true,
 					Network: capg.Network{
-						SelfLink: to.StringP(""),
+						SelfLink:         to.StringP(""),
+						APIServerAddress: to.StringP("something"),
+					},
+				}
+				patchClusterStatus(gcpCluster, status)
+			})
+
+			It("does not requeue the event", func() {
+				Expect(result.Requeue).To(BeFalse())
+				Expect(result.RequeueAfter).To(BeZero())
+				Expect(reconcileErr).NotTo(HaveOccurred())
+
+				Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(0))
+				Expect(firewallsClient.ApplyRuleCallCount()).To(Equal(0))
+			})
+		})
+
+		When("the Status.Network.APIServerBackendService is empty", func() {
+			BeforeEach(func() {
+				status := capg.GCPClusterStatus{
+					Ready: true,
+					Network: capg.Network{
+						SelfLink:         to.StringP("something"),
+						APIServerAddress: to.StringP(""),
 					},
 				}
 				patchClusterStatus(gcpCluster, status)
@@ -317,6 +471,16 @@ var _ = Describe("GCPClusterReconciler", func() {
 	When("the firewall client fails", func() {
 		BeforeEach(func() {
 			firewallsClient.ApplyRuleReturns(errors.New("boom"))
+		})
+
+		It("returns an error", func() {
+			Expect(reconcileErr).To(MatchError(ContainSubstring("boom")))
+		})
+	})
+
+	When("the security policy client fails", func() {
+		BeforeEach(func() {
+			securityPolicyClient.ApplyPolicyReturns(errors.New("boom"))
 		})
 
 		It("returns an error", func() {
