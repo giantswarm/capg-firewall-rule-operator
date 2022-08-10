@@ -46,8 +46,7 @@ var _ = Describe("Client", func() {
 		firewalls, err = compute.NewFirewallsRESTClient(ctx)
 		Expect(err).NotTo(HaveOccurred())
 
-		network = tests.CreateNetwork(networks, gcpProject, name)
-		networkSelfLink := network.SelfLink
+		network = tests.GetDefaultNetwork(networks, gcpProject, name)
 
 		cluster = &capg.GCPCluster{
 			Spec: capg.GCPClusterSpec{
@@ -55,7 +54,7 @@ var _ = Describe("Client", func() {
 			},
 			Status: capg.GCPClusterStatus{
 				Network: capg.Network{
-					SelfLink: networkSelfLink,
+					SelfLink: network.SelfLink,
 				},
 			},
 		}
@@ -83,7 +82,6 @@ var _ = Describe("Client", func() {
 
 	AfterEach(func() {
 		tests.DeleteFirewall(firewalls, gcpProject, name)
-		tests.DeleteNetwork(networks, gcpProject, name)
 	})
 
 	Describe("ApplyRule", func() {

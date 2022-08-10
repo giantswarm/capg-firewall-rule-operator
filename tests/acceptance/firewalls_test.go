@@ -49,9 +49,24 @@ var _ = Describe("Firewalls", func() {
 		SetDefaultEventuallyTimeout(time.Second * 90)
 		ctx = context.Background()
 
+		var err error
+		networks, err = compute.NewNetworksRESTClient(ctx)
+		Expect(err).NotTo(HaveOccurred())
+
+		firewalls, err = compute.NewFirewallsRESTClient(ctx)
+		Expect(err).NotTo(HaveOccurred())
+
+		securityPolicies, err = compute.NewSecurityPoliciesRESTClient(ctx)
+		Expect(err).NotTo(HaveOccurred())
+
+		backendServices, err = compute.NewBackendServicesRESTClient(ctx)
+		Expect(err).NotTo(HaveOccurred())
+
 		name = tests.GenerateGUID("test")
 		securityPolicyName = fmt.Sprintf("allow-%s-apiserver", name)
 		firewallName = fmt.Sprintf("allow-%s-bastion-ssh", name)
+		network = tests.GetDefaultNetwork(networks, gcpProject, name)
+		backendService := tests.CreateBackendService(backendServices, gcpProject, name)
 
 		cluster = &capi.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
@@ -68,22 +83,6 @@ var _ = Describe("Firewalls", func() {
 			},
 		}
 		Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
-
-		var err error
-		networks, err = compute.NewNetworksRESTClient(ctx)
-		Expect(err).NotTo(HaveOccurred())
-
-		firewalls, err = compute.NewFirewallsRESTClient(ctx)
-		Expect(err).NotTo(HaveOccurred())
-
-		securityPolicies, err = compute.NewSecurityPoliciesRESTClient(ctx)
-		Expect(err).NotTo(HaveOccurred())
-
-		backendServices, err = compute.NewBackendServicesRESTClient(ctx)
-		Expect(err).NotTo(HaveOccurred())
-
-		network = tests.CreateNetwork(networks, gcpProject, name)
-		backendService := tests.CreateBackendService(backendServices, gcpProject, name)
 
 		gcpCluster = &capg.GCPCluster{
 			ObjectMeta: metav1.ObjectMeta{
@@ -121,8 +120,6 @@ var _ = Describe("Firewalls", func() {
 
 	AfterEach(func() {
 		tests.DeleteFirewall(firewalls, gcpProject, firewallName)
-		tests.DeleteNetwork(networks, gcpProject, name)
-
 		tests.DeleteBackendService(backendServices, gcpProject, name)
 		tests.DeleteSecurityPolicy(securityPolicies, gcpProject, securityPolicyName)
 	})

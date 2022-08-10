@@ -23,7 +23,9 @@ import (
 const (
 	TestDescription = "test resource for capg-firewall-rule-operator"
 
-	instanceGroupZone = "europe-west3-a"
+	defaultNetworkName     = "default"
+	backendServiceRegion   = "europe-west3"
+	backendServiceProtocol = "TCP"
 )
 
 func GenerateGUID(prefix string) string {
@@ -72,54 +74,21 @@ func DeleteSecurityPolicy(securityPolicies *compute.SecurityPoliciesClient, gcpP
 		SecurityPolicy: name,
 	}
 
-	op, err := securityPolicies.Delete(context.Background(), req)
-	Expect(err).WithOffset(1).To(Or(
-		Not(HaveOccurred()),
-		BeGoogleAPIErrorWithStatus(http.StatusNotFound),
-	))
-
-	if op != nil {
-		waitOnOperation(op)
-	}
-}
-
-func DeleteNetwork(networks *compute.NetworksClient, gcpProject, networkName string) {
-	req := &computepb.DeleteNetworkRequest{
-		Network: networkName,
-		Project: gcpProject,
-	}
-
-	// Explicitly do not wait for the deletion to complete. This makes the
-	// tests significantly slower
-	_, err := networks.Delete(context.Background(), req)
+	_, err := securityPolicies.Delete(context.Background(), req)
 	Expect(err).WithOffset(1).To(Or(
 		Not(HaveOccurred()),
 		BeGoogleAPIErrorWithStatus(http.StatusNotFound),
 	))
 }
 
-func CreateNetwork(networks *compute.NetworksClient, gcpProject, networkName string) *computepb.Network {
+func GetDefaultNetwork(networks *compute.NetworksClient, gcpProject, networkName string) *computepb.Network {
 	ctx := context.Background()
-	network := &computepb.Network{
-		AutoCreateSubnetworks: to.BoolP(false),
-		Description:           to.StringP(TestDescription),
-		Name:                  to.StringP(networkName),
-	}
-
-	insertReq := &computepb.InsertNetworkRequest{
-		NetworkResource: network,
-		Project:         gcpProject,
-	}
-
-	op, err := networks.Insert(ctx, insertReq)
-	Expect(err).NotTo(HaveOccurred())
-	waitOnOperation(op)
 
 	getReq := &computepb.GetNetworkRequest{
-		Network: networkName,
+		Network: defaultNetworkName,
 		Project: gcpProject,
 	}
-	network, err = networks.Get(ctx, getReq)
+	network, err := networks.Get(ctx, getReq)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(network.SelfLink).NotTo(BeNil())
 
@@ -134,8 +103,8 @@ func CreateBackendService(backendServices *compute.BackendServicesClient, gcpPro
 			Backends:    []*computepb.Backend{},
 			Description: to.StringP(TestDescription),
 			Name:        to.StringP(name),
-			Protocol:    to.StringP("TCP"),
-			Region:      to.StringP("europe-west3"),
+			Protocol:    to.StringP(backendServiceProtocol),
+			Region:      to.StringP(backendServiceRegion),
 		},
 		Project: gcpProject,
 	}
