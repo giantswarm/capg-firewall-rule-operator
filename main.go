@@ -27,6 +27,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -39,6 +40,7 @@ import (
 	"github.com/giantswarm/capg-firewall-rule-operator/controllers"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/k8sclient"
+	"github.com/giantswarm/capg-firewall-rule-operator/pkg/nat"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/security"
 	// +kubebuilder:scaffold:imports
 )
@@ -61,6 +63,8 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
+	var managementClusterName string
+	var managementClusterNamespace string
 	flag.StringVar(&gcpProject, "gcp-project", "",
 		"The gcp project id where the firewall records will be created.")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080",
@@ -70,6 +74,10 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.StringVar(&managementClusterName, "management-cluster-name", "",
+		"The name of the Cluster CR for the management cluster")
+	flag.StringVar(&managementClusterNamespace, "management-cluster-namespace", "",
+		"The namespace of the Cluster CR for the management cluster")
 
 	opts := zap.Options{
 		Development: true,
@@ -95,36 +103,57 @@ func main() {
 		os.Exit(1)
 	}
 
-	gcpFwClient, err := gcpcompute.NewFirewallsRESTClient(context.Background())
+	firewalls, err := gcpcompute.NewFirewallsRESTClient(context.Background())
 	if err != nil {
 		setupLog.Error(err, "failed to create Cloud Firewall Rules client")
 		os.Exit(1)
 	}
-	defer gcpFwClient.Close()
+	defer firewalls.Close()
 
-	gcpSecurityPolicyClient, err := gcpcompute.NewSecurityPoliciesRESTClient(context.Background())
+	securityPolicies, err := gcpcompute.NewSecurityPoliciesRESTClient(context.Background())
 	if err != nil {
 		setupLog.Error(err, "failed to create Cloud Security Policies client")
 		os.Exit(1)
 	}
-	defer gcpSecurityPolicyClient.Close()
+	defer securityPolicies.Close()
 
-	gcpBackendServicesClient, err := gcpcompute.NewBackendServicesRESTClient(context.Background())
+	backendServices, err := gcpcompute.NewBackendServicesRESTClient(context.Background())
 	if err != nil {
 		setupLog.Error(err, "failed to create Cloud Security Policies client")
 		os.Exit(1)
 	}
-	defer gcpBackendServicesClient.Close()
+	defer backendServices.Close()
+
+	addresses, err := gcpcompute.NewAddressesRESTClient(context.Background())
+	if err != nil {
+		setupLog.Error(err, "failed to create Cloud Addresses client")
+		os.Exit(1)
+	}
+	defer addresses.Close()
+
+	routers, err := gcpcompute.NewRoutersRESTClient(context.Background())
+	if err != nil {
+		setupLog.Error(err, "failed to create Cloud Routers client")
+		os.Exit(1)
+	}
+	defer routers.Close()
 
 	client := k8sclient.NewGCPCluster(mgr.GetClient())
-	firewallClient := firewall.NewClient(gcpFwClient)
-	securityPolicyClient := security.NewClient(gcpSecurityPolicyClient, gcpBackendServicesClient)
+	firewallClient := firewall.NewClient(firewalls)
+	securityPolicyClient := security.NewClient(securityPolicies, backendServices)
+	ipResolver := nat.NewIPResolver(client, addresses, routers)
+	managementCluster := types.NamespacedName{
+		Name:      managementClusterName,
+		Namespace: managementClusterNamespace,
+	}
 
 	controller := controllers.NewGCPClusterReconciler(
 		mgr.GetLogger(),
+		managementCluster,
 		client,
 		firewallClient,
 		securityPolicyClient,
+		ipResolver,
 	)
 
 	err = controller.SetupWithManager(mgr)

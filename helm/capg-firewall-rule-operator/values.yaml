@@ -9,6 +9,9 @@ image:
 registry:
   domain: docker.io
 
+managementClusterName: ""
+managementClusterNamespace: ""
+
 pod:
   user:
     id: 1000

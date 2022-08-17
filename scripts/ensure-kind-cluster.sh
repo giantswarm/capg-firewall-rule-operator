@@ -19,4 +19,5 @@ ensure_kind_cluster() {
 
 ensure_kind_cluster "$CLUSTER"
 kubectl create namespace giantswarm --kubeconfig "$HOME/.kube/$CLUSTER.yml" || true
+kubectl create namespace "$MANAGEMENT_CLUSTER_NAMESPACE" --kubeconfig "$HOME/.kube/$CLUSTER.yml" || true
 "$KIND" load docker-image --name "$CLUSTER" "$IMG"

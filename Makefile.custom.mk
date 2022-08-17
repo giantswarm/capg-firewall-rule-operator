@@ -8,6 +8,9 @@ IMAGE_REPO = $(word 1,$(subst :, ,$(IMG)))
 IMAGE_TAG = $(word 2,$(subst :, ,$(IMG)))
 
 CLUSTER ?= acceptance
+MANAGEMENT_CLUSTER_NAME ?= test-mc
+MANAGEMENT_CLUSTER_NAMESPACE ?= test
+
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.24
 
@@ -76,7 +79,7 @@ lint-imports: goimports ## Run go vet against code.
 
 .PHONY: create-acceptance-cluster
 create-acceptance-cluster: kind
-	CLUSTER=$(CLUSTER) IMG=$(IMG) ./scripts/ensure-kind-cluster.sh
+	CLUSTER=$(CLUSTER) IMG=$(IMG) MANAGEMENT_CLUSTER_NAMESPACE=$(MANAGEMENT_CLUSTER_NAMESPACE) ./scripts/ensure-kind-cluster.sh
 
 .PHONY: install-cluster-api
 install-cluster-api: clusterctl
@@ -85,21 +88,29 @@ install-cluster-api: clusterctl
 .PHONY: deploy-acceptance-cluster
 deploy-acceptance-cluster: docker-build create-acceptance-cluster install-cluster-api deploy
 
+.PHONY: clear-envtest-cache
+clear-envtest-cache: ## Clear envtest ports cache
+	rm -rf "$(HOME)/.cache/kubebuilder-envtest/"
+
 .PHONY: test-unit
 test-unit: ginkgo generate fmt vet envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" $(GINKGO) -p --cover --nodes 8 -r -randomize-all --randomize-suites --skip-package=tests ./...
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" $(GINKGO) -p --cover -r -randomize-all --randomize-suites --skip-package=tests ./...
 
 .PHONY: test-integration
-test-integration: ginkgo ensure-gcp-envs ## Run integration tests
+test-integration: ginkgo ensure-gcp-envs envtest ## Run integration tests
 	$(eval GOOGLE_APPLICATION_CREDENTIALS=$(shell ${PWD}/scripts/create-gcp-credentials-file.sh))
-	GOOGLE_APPLICATION_CREDENTIALS=$(GOOGLE_APPLICATION_CREDENTIALS) $(GINKGO) -p -r -randomize-all --randomize-suites --slow-spec-threshold "30s" tests/integration
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" GOOGLE_APPLICATION_CREDENTIALS=$(GOOGLE_APPLICATION_CREDENTIALS) $(GINKGO) -p -r -randomize-all --randomize-suites --slow-spec-threshold "30s" tests/integration/
 	rm $(GOOGLE_APPLICATION_CREDENTIALS)
 
 .PHONY: test-acceptance
 test-acceptance: KUBECONFIG=$(HOME)/.kube/$(CLUSTER).yml
 test-acceptance: ginkgo ensure-gcp-envs deploy-acceptance-cluster ## Run acceptance testst
 	$(eval GOOGLE_APPLICATION_CREDENTIALS=$(shell ${PWD}/scripts/create-gcp-credentials-file.sh))
-	GOOGLE_APPLICATION_CREDENTIALS=$(GOOGLE_APPLICATION_CREDENTIALS) KUBECONFIG="$(KUBECONFIG)" $(GINKGO) -p --nodes 8 -r -randomize-all --randomize-suites --slow-spec-threshold "30s" tests/acceptance
+	GOOGLE_APPLICATION_CREDENTIALS=$(GOOGLE_APPLICATION_CREDENTIALS) \
+	KUBECONFIG="$(KUBECONFIG)" \
+	MANAGEMENT_CLUSTER_NAME="$(MANAGEMENT_CLUSTER_NAME)" \
+	MANAGEMENT_CLUSTER_NAMESPACE="$(MANAGEMENT_CLUSTER_NAMESPACE)" \
+	$(GINKGO) -r -randomize-all --randomize-suites --slow-spec-threshold "30s" tests/acceptance
 	rm $(GOOGLE_APPLICATION_CREDENTIALS)
 
 .PHONY: test-all
@@ -133,6 +144,8 @@ deploy: manifests render ensure-deploy-envs ## Deploy controller to the K8s clus
 		--namespace giantswarm \
 		--set image.tag=$(IMAGE_TAG) \
 		--set gcp.credentials=$(B64_GOOGLE_APPLICATION_CREDENTIALS) \
+		--set managementClusterName=$(MANAGEMENT_CLUSTER_NAME) \
+		--set managementClusterNamespace=$(MANAGEMENT_CLUSTER_NAMESPACE) \
 		--wait \
 		capg-firewall-rule-operator helm/rendered/capg-firewall-rule-operator
 
@@ -149,7 +162,7 @@ controller-gen: ## Download controller-gen locally if necessary.
 
 ENVTEST = $(shell pwd)/bin/setup-envtest
 .PHONY: envtest
-envtest: ## Download envtest-setup locally if necessary.
+envtest: clear-envtest-cache ## Download envtest-setup locally if necessary.
 	$(call go-get-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest@latest)
 
 GINKGO = $(shell pwd)/bin/ginkgo

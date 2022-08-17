@@ -32,6 +32,11 @@ spec:
               value: /home/.gcp/credentials
           command:
             - /manager
+          args:
+            - "--management-cluster-name"
+            - {{ .Values.managementClusterName }}
+            - "--management-cluster-namespace"
+            - {{ .Values.managementClusterNamespace }}
           resources:
             requests:
               cpu: 100m

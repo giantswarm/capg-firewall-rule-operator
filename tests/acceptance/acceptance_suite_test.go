@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	capg "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
 	capi "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -20,6 +21,8 @@ import (
 var (
 	k8sClient  client.Client
 	gcpProject string
+
+	managementClusterName types.NamespacedName
 
 	namespace    string
 	namespaceObj *corev1.Namespace
@@ -34,6 +37,13 @@ var _ = BeforeSuite(func() {
 	tests.GetEnvOrSkip("KUBECONFIG")
 	tests.GetEnvOrSkip("GOOGLE_APPLICATION_CREDENTIALS")
 	gcpProject = tests.GetEnvOrSkip("GCP_PROJECT_ID")
+	mcName := tests.GetEnvOrSkip("MANAGEMENT_CLUSTER_NAME")
+	mcNamespace := tests.GetEnvOrSkip("MANAGEMENT_CLUSTER_NAMESPACE")
+
+	managementClusterName = types.NamespacedName{
+		Name:      mcName,
+		Namespace: mcNamespace,
+	}
 
 	config, err := controllerruntime.GetConfig()
 	Expect(err).NotTo(HaveOccurred())
