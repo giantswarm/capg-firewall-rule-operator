@@ -94,12 +94,12 @@ clear-envtest-cache: ## Clear envtest ports cache
 
 .PHONY: test-unit
 test-unit: ginkgo generate fmt vet envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" $(GINKGO) -p --cover -r -randomize-all --randomize-suites --skip-package=tests ./...
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" $(GINKGO) -p --nodes 8 --cover -r -randomize-all --randomize-suites --skip-package=tests ./...
 
 .PHONY: test-integration
 test-integration: ginkgo ensure-gcp-envs envtest ## Run integration tests
 	$(eval GOOGLE_APPLICATION_CREDENTIALS=$(shell ${PWD}/scripts/create-gcp-credentials-file.sh))
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" GOOGLE_APPLICATION_CREDENTIALS=$(GOOGLE_APPLICATION_CREDENTIALS) $(GINKGO) -p -r -randomize-all --randomize-suites --slow-spec-threshold "30s" tests/integration/
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" GOOGLE_APPLICATION_CREDENTIALS=$(GOOGLE_APPLICATION_CREDENTIALS) $(GINKGO) -p --nodes 8 -r -randomize-all --randomize-suites --slow-spec-threshold "30s" tests/integration/
 	rm $(GOOGLE_APPLICATION_CREDENTIALS)
 
 .PHONY: test-acceptance
