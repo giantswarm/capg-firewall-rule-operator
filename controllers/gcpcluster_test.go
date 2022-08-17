@@ -23,16 +23,19 @@ import (
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/k8sclient"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/security"
+	"github.com/giantswarm/capg-firewall-rule-operator/tests"
 )
 
 var _ = Describe("GCPClusterReconciler", func() {
 	var (
-		ctx context.Context
+		ctx               context.Context
+		managementCluster types.NamespacedName
 
 		reconciler           *controllers.GCPClusterReconciler
 		clusterClient        controllers.GCPClusterClient
 		firewallsClient      *controllersfakes.FakeFirewallsClient
 		securityPolicyClient *controllersfakes.FakeSecurityPolicyClient
+		ipResolver           *controllersfakes.FakeClusterNATIPResolver
 
 		cluster    *capi.Cluster
 		gcpCluster *capg.GCPCluster
@@ -49,12 +52,22 @@ var _ = Describe("GCPClusterReconciler", func() {
 		clusterClient = k8sclient.NewGCPCluster(k8sClient)
 		firewallsClient = new(controllersfakes.FakeFirewallsClient)
 		securityPolicyClient = new(controllersfakes.FakeSecurityPolicyClient)
+		ipResolver = new(controllersfakes.FakeClusterNATIPResolver)
+
+		ipResolver.GetIPsReturns([]string{"10.1.1.24", "192.168.1.218"}, nil)
+
+		managementCluster = types.NamespacedName{
+			Name:      "the-mc-name",
+			Namespace: "the-namespace",
+		}
 
 		reconciler = controllers.NewGCPClusterReconciler(
 			logger,
+			managementCluster,
 			clusterClient,
 			firewallsClient,
 			securityPolicyClient,
+			ipResolver,
 		)
 
 		cluster = &capi.Cluster{
@@ -135,24 +148,39 @@ var _ = Describe("GCPClusterReconciler", func() {
 		Expect(actualRule.SourceRanges).To(Equal([]string{"128.0.0.0/24", "192.168.0.0/24"}))
 	})
 
-	It("uses the security policy client to create security policies for the kubernetes api", func() {
-		Expect(securityPolicyClient.ApplyPolicyCallCount()).To(Equal(1))
+	It("applies the security policies for the kubernetes api", func() {
+		By("using the ip resolver to get the MC's NAT IPs")
+		Expect(ipResolver.GetIPsCallCount()).To(Equal(1))
+		_, clusterName := ipResolver.GetIPsArgsForCall(0)
+		Expect(clusterName).To(Equal(managementCluster))
 
+		Expect(securityPolicyClient.ApplyPolicyCallCount()).To(Equal(1))
 		_, actualCluster, actualPolicy := securityPolicyClient.ApplyPolicyArgsForCall(0)
 		Expect(actualCluster.Name).To(Equal("the-gcp-cluster"))
 		Expect(*actualCluster.Status.Network.SelfLink).To(Equal("something"))
 		Expect(actualPolicy.Name).To(Equal("allow-the-gcp-cluster-apiserver"))
 		Expect(actualPolicy.Description).To(Equal("allow IPs to connect to kubernetes api"))
 		Expect(actualPolicy.DefaultAction).To(Equal(security.ActionDeny403))
-		Expect(actualPolicy.Rules).To(ConsistOf(security.PolicyRule{
-			Action:      security.ActionAllow,
-			Description: "allow user specified ips to connect to kubernetes api",
-			SourceIPRanges: []string{
-				"10.0.0.0/24",
-				"172.158.0.0/24",
+		Expect(actualPolicy.Rules).To(ConsistOf(
+			security.PolicyRule{
+				Action:      security.ActionAllow,
+				Description: "allow user specified ips to connect to kubernetes api",
+				SourceIPRanges: []string{
+					"10.0.0.0/24",
+					"172.158.0.0/24",
+				},
+				Priority: 0,
 			},
-			Priority: 0,
-		}))
+			security.PolicyRule{
+				Action:      security.ActionAllow,
+				Description: "allow MC NAT IPs",
+				SourceIPRanges: []string{
+					"10.1.1.24",
+					"192.168.1.218",
+				},
+				Priority: 1,
+			},
+		))
 	})
 
 	When("the gcp cluster is marked for deletion", func() {
@@ -336,7 +364,8 @@ var _ = Describe("GCPClusterReconciler", func() {
 
 			Expect(securityPolicyClient.ApplyPolicyCallCount()).To(Equal(1))
 			_, _, actualPolicy := securityPolicyClient.ApplyPolicyArgsForCall(0)
-			Expect(actualPolicy.Rules).To(BeEmpty())
+			Expect(actualPolicy.Rules).To(HaveLen(1))
+			Expect(actualPolicy.Rules[0].Description).To(Equal("allow MC NAT IPs"))
 		})
 	})
 
@@ -471,6 +500,16 @@ var _ = Describe("GCPClusterReconciler", func() {
 	When("the firewall client fails", func() {
 		BeforeEach(func() {
 			firewallsClient.ApplyRuleReturns(errors.New("boom"))
+		})
+
+		It("returns an error", func() {
+			Expect(reconcileErr).To(MatchError(ContainSubstring("boom")))
+		})
+	})
+
+	When("the IP resolver fails", func() {
+		BeforeEach(func() {
+			ipResolver.GetIPsReturns([]string{}, errors.New("boom"))
 		})
 
 		It("returns an error", func() {

@@ -44,19 +44,36 @@ type SecurityPolicyClient interface {
 	DeletePolicy(context.Context, *capg.GCPCluster, string) error
 }
 
+//counterfeiter:generate . ClusterNATIPResolver
+type ClusterNATIPResolver interface {
+	GetIPs(context.Context, types.NamespacedName) ([]string, error)
+}
+
 type GCPClusterReconciler struct {
-	logger               logr.Logger
+	logger            logr.Logger
+	managementCluster types.NamespacedName
+
 	client               GCPClusterClient
 	firewallClient       FirewallsClient
 	securityPolicyClient SecurityPolicyClient
+	ipResolver           ClusterNATIPResolver
 }
 
-func NewGCPClusterReconciler(logger logr.Logger, client GCPClusterClient, firewallClient FirewallsClient, securityPolicyClient SecurityPolicyClient) *GCPClusterReconciler {
+func NewGCPClusterReconciler(
+	logger logr.Logger,
+	managementCluster types.NamespacedName,
+	client GCPClusterClient,
+	firewallClient FirewallsClient,
+	securityPolicyClient SecurityPolicyClient,
+	ipResolver ClusterNATIPResolver,
+) *GCPClusterReconciler {
 	return &GCPClusterReconciler{
 		logger:               logger,
+		managementCluster:    managementCluster,
 		client:               client,
 		firewallClient:       firewallClient,
 		securityPolicyClient: securityPolicyClient,
+		ipResolver:           ipResolver,
 	}
 }
 
@@ -68,7 +85,6 @@ func (r *GCPClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var result ctrl.Result
 	logger := r.logger.WithValues("gcpcluster", req.NamespacedName)
 	logger.Info("Reconciling")
 	defer logger.Info("Done reconciling")
@@ -98,7 +114,7 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if !gcpCluster.DeletionTimestamp.IsZero() {
-		result, err = r.reconcileDelete(ctx, gcpCluster)
+		result, err := r.reconcileDelete(ctx, gcpCluster)
 		if err != nil {
 			return ctrl.Result{}, errors.WithStack(err)
 		}
@@ -106,7 +122,7 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return result, nil
 	}
 
-	result, err = r.reconcileNormal(ctx, logger, gcpCluster)
+	result, err := r.reconcileNormal(ctx, logger, gcpCluster)
 	if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
 	}
@@ -179,6 +195,12 @@ func (r *GCPClusterReconciler) applyAPISecurityPolicy(ctx context.Context, logge
 		})
 	}
 
+	allowMCNATRule, err := r.getAllowMCNATRule(ctx)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	rules = append(rules, allowMCNATRule)
+
 	policy := security.Policy{
 		Name:          policyName,
 		Description:   "allow IPs to connect to kubernetes api",
@@ -212,6 +234,20 @@ func (r *GCPClusterReconciler) applyBastionFirewallRule(ctx context.Context, log
 	}
 
 	return r.firewallClient.ApplyRule(ctx, gcpCluster, rule)
+}
+
+func (r *GCPClusterReconciler) getAllowMCNATRule(ctx context.Context) (security.PolicyRule, error) {
+	mcNATIPs, err := r.ipResolver.GetIPs(ctx, r.managementCluster)
+	if err != nil {
+		return security.PolicyRule{}, errors.WithStack(err)
+	}
+
+	return security.PolicyRule{
+		Action:         security.ActionAllow,
+		Description:    "allow MC NAT IPs",
+		SourceIPRanges: mcNATIPs,
+		Priority:       1,
+	}, nil
 }
 
 func (r *GCPClusterReconciler) deleteBastionFirewallRule(ctx context.Context, gcpCluster *capg.GCPCluster) error {
