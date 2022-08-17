@@ -4,16 +4,16 @@ import (
 	"context"
 	"math"
 	"net/http"
-	"strings"
 
 	compute "cloud.google.com/go/compute/apiv1"
 	"github.com/giantswarm/to"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	"google.golang.org/api/googleapi"
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
 	capg "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/giantswarm/capg-firewall-rule-operator/pkg/google"
 )
 
 const (
@@ -72,7 +72,7 @@ func (c *Client) ApplyPolicy(ctx context.Context, cluster *capg.GCPCluster, poli
 
 func (c *Client) setSecurityPolicy(ctx context.Context, cluster *capg.GCPCluster, policy *computepb.SecurityPolicy) error {
 	req := &computepb.SetSecurityPolicyBackendServiceRequest{
-		BackendService: getName(cluster.Status.Network.APIServerBackendService),
+		BackendService: google.GetResourceName(cluster.Status.Network.APIServerBackendService),
 		Project:        cluster.Spec.Project,
 		SecurityPolicyReferenceResource: &computepb.SecurityPolicyReference{
 			SecurityPolicy: policy.SelfLink,
@@ -92,7 +92,7 @@ func (c *Client) applySecurityPolicy(ctx context.Context, logger logr.Logger, cl
 	securityPolicy := toGCPSecurityPolicy(cluster, policy)
 
 	err := c.createSecurityPolicy(ctx, cluster, securityPolicy)
-	if hasHttpCode(err, http.StatusConflict) {
+	if google.HasHttpCode(err, http.StatusConflict) {
 		logger.Info("securityPolicy already exists. Updating")
 		err = c.updateSecurityPolicy(ctx, cluster, securityPolicy)
 	}
@@ -120,7 +120,7 @@ func (c *Client) DeletePolicy(ctx context.Context, cluster *capg.GCPCluster, nam
 		SecurityPolicy: name,
 	}
 	op, err := c.securityPolicies.Delete(ctx, req)
-	if hasHttpCode(err, http.StatusNotFound) {
+	if google.HasHttpCode(err, http.StatusNotFound) {
 		logger.Info("Firewall already deleted")
 		return nil
 	}
@@ -219,24 +219,4 @@ func getDefaultRule(defaultAction string) *computepb.SecurityPolicyRule {
 		},
 		Priority: to.Int32P(math.MaxInt32),
 	}
-}
-
-func hasHttpCode(err error, statusCode int) bool {
-	var googleErr *googleapi.Error
-	if errors.As(err, &googleErr) {
-		if googleErr.Code == statusCode {
-			return true
-		}
-	}
-
-	return false
-}
-
-func getName(selfLink *string) string {
-	if selfLink == nil {
-		return ""
-	}
-
-	s := *selfLink
-	return s[strings.LastIndex(s, "/")+1:]
 }

@@ -12,6 +12,8 @@ import (
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
 	capg "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/giantswarm/capg-firewall-rule-operator/pkg/google"
 )
 
 const (
@@ -60,7 +62,7 @@ func (c *Client) ApplyRule(ctx context.Context, cluster *capg.GCPCluster, rule R
 	}
 	op, err := c.firewallClient.Insert(ctx, req)
 
-	if hasHttpCode(err, http.StatusConflict) {
+	if google.HasHttpCode(err, http.StatusConflict) {
 		logger.Info("Firewall already exists. Updating")
 		err = c.updateFirewall(ctx, cluster, firewall)
 		return errors.WithStack(err)
@@ -85,7 +87,7 @@ func (c *Client) DeleteRule(ctx context.Context, cluster *capg.GCPCluster, ruleN
 		Firewall: ruleName,
 	}
 	op, err := c.firewallClient.Delete(ctx, req)
-	if hasHttpCode(err, http.StatusNotFound) {
+	if google.HasHttpCode(err, http.StatusNotFound) {
 		logger.Info("Firewall already deleted")
 		return nil
 	}

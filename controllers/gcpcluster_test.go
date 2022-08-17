@@ -95,7 +95,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 				APIServerBackendService: to.StringP("something"),
 			},
 		}
-		patchClusterStatus(gcpCluster, status)
+		tests.PatchClusterStatus(k8sClient, gcpCluster, status)
 
 		request = ctrl.Request{
 			NamespacedName: types.NamespacedName{
@@ -117,7 +117,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 		Expect(actualCluster.Finalizers).To(ContainElement(controllers.FinalizerFirewall))
 	})
 
-	It("uses the firewall client to create firewall rules for the bastions", func() {
+	It("applies the firewall rules for the bastions", func() {
 		Expect(firewallsClient.ApplyRuleCallCount()).To(Equal(1))
 
 		_, actualCluster, actualRule := firewallsClient.ApplyRuleArgsForCall(0)
@@ -195,7 +195,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 		When("the cluster does not have Status.Network set", func() {
 			BeforeEach(func() {
 				status := capg.GCPClusterStatus{Ready: true}
-				patchClusterStatus(gcpCluster, status)
+				tests.PatchClusterStatus(k8sClient, gcpCluster, status)
 			})
 
 			It("removes the firewall rule", func() {
@@ -210,7 +210,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 							SelfLink: to.StringP(""),
 						},
 					}
-					patchClusterStatus(gcpCluster, status)
+					tests.PatchClusterStatus(k8sClient, gcpCluster, status)
 				})
 
 				It("removes the firewall rule", func() {
@@ -226,7 +226,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 							APIServerBackendService: to.StringP(""),
 						},
 					}
-					patchClusterStatus(gcpCluster, status)
+					tests.PatchClusterStatus(k8sClient, gcpCluster, status)
 				})
 
 				It("removes the firewall rule", func() {
@@ -381,7 +381,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 	When("the cluster does not have Status.Network set yet", func() {
 		BeforeEach(func() {
 			status := capg.GCPClusterStatus{Ready: true}
-			patchClusterStatus(gcpCluster, status)
+			tests.PatchClusterStatus(k8sClient, gcpCluster, status)
 		})
 
 		It("does not requeue the event", func() {
@@ -402,7 +402,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 						APIServerAddress: to.StringP("something"),
 					},
 				}
-				patchClusterStatus(gcpCluster, status)
+				tests.PatchClusterStatus(k8sClient, gcpCluster, status)
 			})
 
 			It("does not requeue the event", func() {
@@ -424,7 +424,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 						APIServerAddress: to.StringP(""),
 					},
 				}
-				patchClusterStatus(gcpCluster, status)
+				tests.PatchClusterStatus(k8sClient, gcpCluster, status)
 			})
 
 			It("does not requeue the event", func() {

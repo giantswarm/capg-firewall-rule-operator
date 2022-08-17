@@ -10,7 +10,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	capg "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
 	capi "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -87,15 +86,3 @@ var _ = AfterEach(func() {
 	namespaceObj.Name = namespace
 	Expect(k8sClient.Delete(context.Background(), namespaceObj)).To(Succeed())
 })
-
-func patchClusterStatus(cluster *capg.GCPCluster, status capg.GCPClusterStatus) {
-	patchedCluster := cluster.DeepCopy()
-	patchedCluster.Status = status
-	Expect(k8sClient.Status().Patch(context.Background(), patchedCluster, client.MergeFrom(cluster))).To(Succeed())
-
-	nsName := types.NamespacedName{
-		Name:      cluster.Name,
-		Namespace: cluster.Namespace,
-	}
-	Expect(k8sClient.Get(context.Background(), nsName, cluster)).To(Succeed())
-}
