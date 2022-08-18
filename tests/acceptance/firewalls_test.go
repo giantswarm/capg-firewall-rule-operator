@@ -187,7 +187,9 @@ var _ = Describe("Firewalls", func() {
 		Expect(actualFirewall.Allowed).To(HaveLen(1))
 		Expect(actualFirewall.Allowed[0].IPProtocol).To(Equal(to.StringP("tcp")))
 		Expect(actualFirewall.Allowed[0].Ports).To(ConsistOf("22"))
-		Expect(actualFirewall.SourceRanges).To(ConsistOf("128.0.0.0/24", "192.168.0.0/24"))
+		expectedSourceRanges := []string{"128.0.0.0/24", "192.168.0.0/24"}
+		expectedSourceRanges = append(expectedSourceRanges, defaultBastionHostAllowList...)
+		Expect(actualFirewall.SourceRanges).To(ConsistOf(expectedSourceRanges))
 
 		By("creating the kube api security policy")
 		getSecurityPolicy := &computepb.GetSecurityPolicyRequest{

@@ -12,6 +12,7 @@ registry:
 managementClusterName: ""
 managementClusterNamespace: ""
 defaultAPIAllowList: "185.102.95.187/32,95.179.153.65/32"
+defaultBastionHostAllowList: "185.102.95.187/32,95.179.153.65/32"
 
 pod:
   user:

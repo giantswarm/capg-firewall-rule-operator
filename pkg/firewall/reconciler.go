@@ -20,13 +20,19 @@ type FirewallsClient interface {
 	DeleteRule(context.Context, *capg.GCPCluster, string) error
 }
 
-func NewRuleReconciler(firewallClient FirewallsClient) *RuleReconciler {
+func NewRuleReconciler(
+	defaultBastionHostAllowList []string,
+	firewallClient FirewallsClient,
+) *RuleReconciler {
 	return &RuleReconciler{
-		firewallClient: firewallClient,
+		defaultBastionHostAllowList: defaultBastionHostAllowList,
+		firewallClient:              firewallClient,
 	}
 }
 
 type RuleReconciler struct {
+	defaultBastionHostAllowList []string
+
 	firewallClient FirewallsClient
 }
 
@@ -39,6 +45,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, cluster *capg.GCPCluster
 	if err != nil {
 		return errors.WithStack(err)
 	}
+	sourceIPRanges = append(sourceIPRanges, r.defaultBastionHostAllowList...)
 
 	rule := Rule{
 		Allowed: []Allowed{

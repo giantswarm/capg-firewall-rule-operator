@@ -67,6 +67,8 @@ func main() {
 	var managementClusterName string
 	var managementClusterNamespace string
 	var defaultAPIAllowListFlag string
+	var defaultBastionHostAllowListFlag string
+
 	flag.StringVar(&gcpProject, "gcp-project", "",
 		"The gcp project id where the firewall records will be created.")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080",
@@ -82,6 +84,8 @@ func main() {
 		"The namespace of the Cluster CR for the management cluster")
 	flag.StringVar(&defaultAPIAllowListFlag, "default-api-allow-list", "",
 		"Comma separated list of CIDRs that are allowed to reach the Kubernetes API")
+	flag.StringVar(&defaultBastionHostAllowListFlag, "default-bastion-host-allow-list", "",
+		"Comma separated list of CIDRs that are allowed to ssh to the Bastion hosts")
 
 	opts := zap.Options{
 		Development: true,
@@ -163,7 +167,14 @@ func main() {
 		securityPolicyClient,
 		ipResolver,
 	)
-	firewallReconciler := firewall.NewRuleReconciler(firewallClient)
+
+	defaultBastionHostAllowList, err := cidr.ParseFromCommaSeparated(defaultBastionHostAllowListFlag)
+	if err != nil {
+		setupLog.Error(err, "failed to parse default allow list cidrs")
+		os.Exit(1)
+	}
+
+	firewallReconciler := firewall.NewRuleReconciler(defaultBastionHostAllowList, firewallClient)
 
 	controller := controllers.NewGCPClusterReconciler(
 		client,

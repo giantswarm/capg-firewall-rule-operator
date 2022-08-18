@@ -19,7 +19,8 @@ import (
 )
 
 var (
-	defaultAPIAllowList = []string{"185.102.95.187/32", "95.179.153.65/32"}
+	defaultAPIAllowList         = []string{"185.102.95.187/32", "95.179.153.65/32"}
+	defaultBastionHostAllowList = []string{"185.102.95.187/32", "95.179.153.65/32"}
 
 	k8sClient  client.Client
 	gcpProject string

@@ -70,7 +70,8 @@ var _ = Describe("GCPClusterReconciler", func() {
 			ipResolver,
 		)
 
-		firewallReconciler := firewall.NewRuleReconciler(firewallClient)
+		defaultBastionHostAllowList := []string{"192.168.0.0/24", "172.158.0.0/24"}
+		firewallReconciler := firewall.NewRuleReconciler(defaultBastionHostAllowList, firewallClient)
 
 		reconciler = controllers.NewGCPClusterReconciler(
 			clusterClient,
@@ -153,7 +154,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 		Expect(actualRule.Direction).To(Equal(firewall.DirectionIngress))
 		Expect(actualRule.Name).To(Equal("allow-the-gcp-cluster-bastion-ssh"))
 		Expect(actualRule.TargetTags).To(Equal([]string{"the-gcp-cluster-bastion"}))
-		Expect(actualRule.SourceRanges).To(Equal([]string{"128.0.0.0/24", "192.168.0.0/24"}))
+		Expect(actualRule.SourceRanges).To(Equal([]string{"128.0.0.0/24", "192.168.0.0/24", "192.168.0.0/24", "172.158.0.0/24"}))
 	})
 
 	It("applies the security policies for the kubernetes api", func() {
@@ -363,7 +364,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 
 			Expect(firewallClient.ApplyRuleCallCount()).To(Equal(1))
 			_, _, actualRule := firewallClient.ApplyRuleArgsForCall(0)
-			Expect(actualRule.SourceRanges).To(BeZero())
+			Expect(actualRule.SourceRanges).To(ConsistOf("192.168.0.0/24", "172.158.0.0/24"))
 		})
 	})
 

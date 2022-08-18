@@ -39,6 +39,8 @@ spec:
             - {{ .Values.managementClusterNamespace }}
             - "--default-api-allow-list"
             - {{ .Values.defaultAPIAllowList }}
+            - "--default-bastion-host-allow-list"
+            - {{ .Values.defaultBastionHostAllowList }}
           resources:
             requests:
               cpu: 100m
