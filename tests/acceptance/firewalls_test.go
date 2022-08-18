@@ -122,7 +122,7 @@ var _ = Describe("Firewalls", func() {
 				Namespace: namespace,
 				Annotations: map[string]string{
 					controllers.AnnotationBastionAllowListSubnets: "128.0.0.0/24,192.168.0.0/24",
-					controllers.AnnotationAPIAllowListSubnets:     "10.0.0.0/24,172.158.0.0/24",
+					security.AnnotationAPIAllowListSubnets:        "10.0.0.0/24,172.158.0.0/24",
 				},
 				OwnerReferences: []metav1.OwnerReference{
 					{

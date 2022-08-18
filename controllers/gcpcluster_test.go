@@ -23,6 +23,7 @@ import (
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/k8sclient"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/security"
+	"github.com/giantswarm/capg-firewall-rule-operator/pkg/security/securityfakes"
 	"github.com/giantswarm/capg-firewall-rule-operator/tests"
 )
 
@@ -34,8 +35,8 @@ var _ = Describe("GCPClusterReconciler", func() {
 		reconciler           *controllers.GCPClusterReconciler
 		clusterClient        controllers.GCPClusterClient
 		firewallsClient      *controllersfakes.FakeFirewallsClient
-		securityPolicyClient *controllersfakes.FakeSecurityPolicyClient
-		ipResolver           *controllersfakes.FakeClusterNATIPResolver
+		securityPolicyClient *securityfakes.FakeSecurityPolicyClient
+		ipResolver           *securityfakes.FakeClusterNATIPResolver
 
 		cluster    *capi.Cluster
 		gcpCluster *capg.GCPCluster
@@ -51,8 +52,8 @@ var _ = Describe("GCPClusterReconciler", func() {
 
 		clusterClient = k8sclient.NewGCPCluster(k8sClient)
 		firewallsClient = new(controllersfakes.FakeFirewallsClient)
-		securityPolicyClient = new(controllersfakes.FakeSecurityPolicyClient)
-		ipResolver = new(controllersfakes.FakeClusterNATIPResolver)
+		securityPolicyClient = new(securityfakes.FakeSecurityPolicyClient)
+		ipResolver = new(securityfakes.FakeClusterNATIPResolver)
 
 		ipResolver.GetIPsReturns([]string{"10.1.1.24", "192.168.1.218"}, nil)
 
@@ -61,13 +62,18 @@ var _ = Describe("GCPClusterReconciler", func() {
 			Namespace: "the-namespace",
 		}
 
-		reconciler = controllers.NewGCPClusterReconciler(
-			logger,
+		securityPolicyReconciler := security.NewPolicyReconciler(
+			[]string{},
 			managementCluster,
-			clusterClient,
-			firewallsClient,
 			securityPolicyClient,
 			ipResolver,
+		)
+
+		reconciler = controllers.NewGCPClusterReconciler(
+			logger,
+			clusterClient,
+			firewallsClient,
+			securityPolicyReconciler,
 		)
 
 		cluster = &capi.Cluster{
@@ -84,7 +90,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 				Namespace: namespace,
 				Annotations: map[string]string{
 					controllers.AnnotationBastionAllowListSubnets: "128.0.0.0/24,192.168.0.0/24",
-					controllers.AnnotationAPIAllowListSubnets:     "10.0.0.0/24,172.158.0.0/24",
+					security.AnnotationAPIAllowListSubnets:        "10.0.0.0/24,172.158.0.0/24",
 				},
 				OwnerReferences: []metav1.OwnerReference{
 					{
@@ -320,7 +326,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 		func(annotation string) {
 			patchedCluster := gcpCluster.DeepCopy()
 			patchedCluster.Annotations = map[string]string{
-				controllers.AnnotationAPIAllowListSubnets: annotation,
+				security.AnnotationAPIAllowListSubnets: annotation,
 			}
 			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
 
@@ -336,7 +342,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 		BeforeEach(func() {
 			patchedCluster := gcpCluster.DeepCopy()
 			patchedCluster.Annotations = map[string]string{
-				controllers.AnnotationAPIAllowListSubnets: "10.0.0.0/24",
+				security.AnnotationAPIAllowListSubnets: "10.0.0.0/24",
 			}
 			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
 		})

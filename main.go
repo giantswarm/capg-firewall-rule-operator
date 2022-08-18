@@ -147,13 +147,18 @@ func main() {
 		Namespace: managementClusterNamespace,
 	}
 
-	controller := controllers.NewGCPClusterReconciler(
-		mgr.GetLogger(),
+	securityPolicyReconciler := security.NewPolicyReconciler(
+		[]string{},
 		managementCluster,
-		client,
-		firewallClient,
 		securityPolicyClient,
 		ipResolver,
+	)
+
+	controller := controllers.NewGCPClusterReconciler(
+		mgr.GetLogger(),
+		client,
+		firewallClient,
+		securityPolicyReconciler,
 	)
 
 	err = controller.SetupWithManager(mgr)
