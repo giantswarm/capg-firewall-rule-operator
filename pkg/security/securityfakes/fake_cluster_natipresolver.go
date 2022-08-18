@@ -5,8 +5,9 @@ import (
 	"context"
 	"sync"
 
-	"github.com/giantswarm/capg-firewall-rule-operator/pkg/security"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/giantswarm/capg-firewall-rule-operator/pkg/security"
 )
 
 type FakeClusterNATIPResolver struct {

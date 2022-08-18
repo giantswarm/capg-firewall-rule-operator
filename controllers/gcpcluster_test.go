@@ -19,8 +19,8 @@ import (
 	"github.com/giantswarm/to"
 
 	"github.com/giantswarm/capg-firewall-rule-operator/controllers"
-	"github.com/giantswarm/capg-firewall-rule-operator/controllers/controllersfakes"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall"
+	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall/firewallfakes"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/k8sclient"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/security"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/security/securityfakes"
@@ -34,7 +34,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 
 		reconciler           *controllers.GCPClusterReconciler
 		clusterClient        controllers.GCPClusterClient
-		firewallsClient      *controllersfakes.FakeFirewallsClient
+		firewallClient       *firewallfakes.FakeFirewallsClient
 		securityPolicyClient *securityfakes.FakeSecurityPolicyClient
 		ipResolver           *securityfakes.FakeClusterNATIPResolver
 
@@ -51,7 +51,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 		ctx = log.IntoContext(context.Background(), logger)
 
 		clusterClient = k8sclient.NewGCPCluster(k8sClient)
-		firewallsClient = new(controllersfakes.FakeFirewallsClient)
+		firewallClient = new(firewallfakes.FakeFirewallsClient)
 		securityPolicyClient = new(securityfakes.FakeSecurityPolicyClient)
 		ipResolver = new(securityfakes.FakeClusterNATIPResolver)
 
@@ -69,10 +69,11 @@ var _ = Describe("GCPClusterReconciler", func() {
 			ipResolver,
 		)
 
+		firewallReconciler := firewall.NewRuleReconciler(firewallClient)
+
 		reconciler = controllers.NewGCPClusterReconciler(
-			logger,
 			clusterClient,
-			firewallsClient,
+			firewallReconciler,
 			securityPolicyReconciler,
 		)
 
@@ -89,8 +90,8 @@ var _ = Describe("GCPClusterReconciler", func() {
 				Name:      "the-gcp-cluster",
 				Namespace: namespace,
 				Annotations: map[string]string{
-					controllers.AnnotationBastionAllowListSubnets: "128.0.0.0/24,192.168.0.0/24",
-					security.AnnotationAPIAllowListSubnets:        "10.0.0.0/24,172.158.0.0/24",
+					firewall.AnnotationBastionAllowListSubnets: "128.0.0.0/24,192.168.0.0/24",
+					security.AnnotationAPIAllowListSubnets:     "10.0.0.0/24,172.158.0.0/24",
 				},
 				OwnerReferences: []metav1.OwnerReference{
 					{
@@ -137,9 +138,9 @@ var _ = Describe("GCPClusterReconciler", func() {
 	})
 
 	It("applies the firewall rules for the bastions", func() {
-		Expect(firewallsClient.ApplyRuleCallCount()).To(Equal(1))
+		Expect(firewallClient.ApplyRuleCallCount()).To(Equal(1))
 
-		_, actualCluster, actualRule := firewallsClient.ApplyRuleArgsForCall(0)
+		_, actualCluster, actualRule := firewallClient.ApplyRuleArgsForCall(0)
 		Expect(actualCluster.Name).To(Equal("the-gcp-cluster"))
 		Expect(*actualCluster.Status.Network.SelfLink).To(Equal("something"))
 		Expect(actualRule.Name).To(Equal("allow-the-gcp-cluster-bastion-ssh"))
@@ -209,9 +210,9 @@ var _ = Describe("GCPClusterReconciler", func() {
 		})
 
 		It("uses the firewall client to remove firewall rules", func() {
-			Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(1))
+			Expect(firewallClient.DeleteRuleCallCount()).To(Equal(1))
 
-			_, actualCluster, actualRule := firewallsClient.DeleteRuleArgsForCall(0)
+			_, actualCluster, actualRule := firewallClient.DeleteRuleArgsForCall(0)
 			Expect(actualCluster.Name).To(Equal("the-gcp-cluster"))
 			Expect(*actualCluster.Status.Network.SelfLink).To(Equal("something"))
 			Expect(actualRule).To(Equal("allow-the-gcp-cluster-bastion-ssh"))
@@ -233,7 +234,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 			})
 
 			It("removes the firewall rule", func() {
-				Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(1))
+				Expect(firewallClient.DeleteRuleCallCount()).To(Equal(1))
 			})
 
 			When("the Status.Network.SelfLink is empty", func() {
@@ -248,7 +249,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 				})
 
 				It("removes the firewall rule", func() {
-					Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(1))
+					Expect(firewallClient.DeleteRuleCallCount()).To(Equal(1))
 				})
 			})
 
@@ -264,14 +265,14 @@ var _ = Describe("GCPClusterReconciler", func() {
 				})
 
 				It("removes the firewall rule", func() {
-					Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(1))
+					Expect(firewallClient.DeleteRuleCallCount()).To(Equal(1))
 				})
 			})
 		})
 
 		When("the firewall client fails", func() {
 			BeforeEach(func() {
-				firewallsClient.DeleteRuleReturns(errors.New("boom"))
+				firewallClient.DeleteRuleReturns(errors.New("boom"))
 			})
 
 			It("returns an error", func() {
@@ -310,7 +311,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 		func(annotation string) {
 			patchedCluster := gcpCluster.DeepCopy()
 			patchedCluster.Annotations = map[string]string{
-				controllers.AnnotationBastionAllowListSubnets: annotation,
+				firewall.AnnotationBastionAllowListSubnets: annotation,
 			}
 			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
 
@@ -350,8 +351,8 @@ var _ = Describe("GCPClusterReconciler", func() {
 		It("does not return an error", func() {
 			Expect(reconcileErr).NotTo(HaveOccurred())
 
-			Expect(firewallsClient.ApplyRuleCallCount()).To(Equal(1))
-			_, _, actualRule := firewallsClient.ApplyRuleArgsForCall(0)
+			Expect(firewallClient.ApplyRuleCallCount()).To(Equal(1))
+			_, _, actualRule := firewallClient.ApplyRuleArgsForCall(0)
 			Expect(actualRule.SourceRanges).To(BeZero())
 		})
 	})
@@ -360,7 +361,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 		BeforeEach(func() {
 			patchedCluster := gcpCluster.DeepCopy()
 			patchedCluster.Annotations = map[string]string{
-				controllers.AnnotationBastionAllowListSubnets: "10.0.0.0/24",
+				firewall.AnnotationBastionAllowListSubnets: "10.0.0.0/24",
 			}
 			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
 		})
@@ -424,8 +425,8 @@ var _ = Describe("GCPClusterReconciler", func() {
 			Expect(result.RequeueAfter).To(BeZero())
 			Expect(reconcileErr).NotTo(HaveOccurred())
 
-			Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(0))
-			Expect(firewallsClient.ApplyRuleCallCount()).To(Equal(0))
+			Expect(firewallClient.DeleteRuleCallCount()).To(Equal(0))
+			Expect(firewallClient.ApplyRuleCallCount()).To(Equal(0))
 		})
 
 		When("the Status.Network.SelfLink is empty", func() {
@@ -445,8 +446,8 @@ var _ = Describe("GCPClusterReconciler", func() {
 				Expect(result.RequeueAfter).To(BeZero())
 				Expect(reconcileErr).NotTo(HaveOccurred())
 
-				Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(0))
-				Expect(firewallsClient.ApplyRuleCallCount()).To(Equal(0))
+				Expect(firewallClient.DeleteRuleCallCount()).To(Equal(0))
+				Expect(firewallClient.ApplyRuleCallCount()).To(Equal(0))
 			})
 		})
 
@@ -467,8 +468,8 @@ var _ = Describe("GCPClusterReconciler", func() {
 				Expect(result.RequeueAfter).To(BeZero())
 				Expect(reconcileErr).NotTo(HaveOccurred())
 
-				Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(0))
-				Expect(firewallsClient.ApplyRuleCallCount()).To(Equal(0))
+				Expect(firewallClient.DeleteRuleCallCount()).To(Equal(0))
+				Expect(firewallClient.ApplyRuleCallCount()).To(Equal(0))
 			})
 		})
 	})
@@ -505,7 +506,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 
 	When("the firewall client fails", func() {
 		BeforeEach(func() {
-			firewallsClient.ApplyRuleReturns(errors.New("boom"))
+			firewallClient.ApplyRuleReturns(errors.New("boom"))
 		})
 
 		It("returns an error", func() {

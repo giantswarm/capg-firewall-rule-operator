@@ -153,11 +153,11 @@ func main() {
 		securityPolicyClient,
 		ipResolver,
 	)
+	firewallReconciler := firewall.NewRuleReconciler(firewallClient)
 
 	controller := controllers.NewGCPClusterReconciler(
-		mgr.GetLogger(),
 		client,
-		firewallClient,
+		firewallReconciler,
 		securityPolicyReconciler,
 	)
 
