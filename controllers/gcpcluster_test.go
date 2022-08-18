@@ -62,8 +62,9 @@ var _ = Describe("GCPClusterReconciler", func() {
 			Namespace: "the-namespace",
 		}
 
+		defaultAPIAllowList := []string{"10.128.0.0/24", "10.230.0.0/24"}
 		securityPolicyReconciler := security.NewPolicyReconciler(
-			[]string{},
+			defaultAPIAllowList,
 			managementCluster,
 			securityPolicyClient,
 			ipResolver,
@@ -186,6 +187,15 @@ var _ = Describe("GCPClusterReconciler", func() {
 					"192.168.1.218",
 				},
 				Priority: 1,
+			},
+			security.PolicyRule{
+				Action:      security.ActionAllow,
+				Description: "allow default IP ranges",
+				SourceIPRanges: []string{
+					"10.128.0.0/24",
+					"10.230.0.0/24",
+				},
+				Priority: 2,
 			},
 		))
 	})
@@ -366,13 +376,14 @@ var _ = Describe("GCPClusterReconciler", func() {
 			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
 		})
 
-		It("does not return an error", func() {
+		It("still applies the default rules", func() {
 			Expect(reconcileErr).NotTo(HaveOccurred())
 
 			Expect(securityPolicyClient.ApplyPolicyCallCount()).To(Equal(1))
 			_, _, actualPolicy := securityPolicyClient.ApplyPolicyArgsForCall(0)
-			Expect(actualPolicy.Rules).To(HaveLen(1))
+			Expect(actualPolicy.Rules).To(HaveLen(2))
 			Expect(actualPolicy.Rules[0].Description).To(Equal("allow MC NAT IPs"))
+			Expect(actualPolicy.Rules[1].Description).To(Equal("allow default IP ranges"))
 		})
 	})
 

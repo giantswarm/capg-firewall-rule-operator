@@ -226,8 +226,17 @@ var _ = Describe("Firewalls", func() {
 		Expect(defaultNATRule.Match.Config).NotTo(BeNil())
 		Expect(defaultNATRule.Match.Config.SrcIpRanges).To(ConsistOf(*address.Address))
 
+		By("creating the defualt allow list rule in the policy")
+		defaultAllowListRule := securityPolicy.Rules[2]
+		Expect(*defaultAllowListRule.Action).To(Equal(security.ActionAllow))
+		Expect(*defaultAllowListRule.Description).To(Equal("allow default IP ranges"))
+		Expect(*defaultAllowListRule.Priority).To(Equal(int32(2)))
+		Expect(defaultAllowListRule.Match).NotTo(BeNil())
+		Expect(defaultAllowListRule.Match.Config).NotTo(BeNil())
+		Expect(defaultAllowListRule.Match.Config.SrcIpRanges).To(ConsistOf(defaultAPIAllowList))
+
 		By("creating the default policy behaviour rule")
-		defaultRule := securityPolicy.Rules[2]
+		defaultRule := securityPolicy.Rules[3]
 		Expect(*defaultRule.Action).To(Equal(security.ActionDeny403))
 		Expect(*defaultRule.Description).To(Equal(security.DefaultRuleDescription))
 		Expect(*defaultRule.Priority).To(Equal(int32(math.MaxInt32)))

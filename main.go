@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/giantswarm/capg-firewall-rule-operator/controllers"
+	"github.com/giantswarm/capg-firewall-rule-operator/pkg/cidr"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/k8sclient"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/nat"
@@ -65,6 +66,7 @@ func main() {
 	var probeAddr string
 	var managementClusterName string
 	var managementClusterNamespace string
+	var defaultAPIAllowListFlag string
 	flag.StringVar(&gcpProject, "gcp-project", "",
 		"The gcp project id where the firewall records will be created.")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080",
@@ -78,6 +80,8 @@ func main() {
 		"The name of the Cluster CR for the management cluster")
 	flag.StringVar(&managementClusterNamespace, "management-cluster-namespace", "",
 		"The namespace of the Cluster CR for the management cluster")
+	flag.StringVar(&defaultAPIAllowListFlag, "default-api-allow-list", "",
+		"Comma separated list of CIDRs that are allowed to reach the Kubernetes API")
 
 	opts := zap.Options{
 		Development: true,
@@ -147,8 +151,14 @@ func main() {
 		Namespace: managementClusterNamespace,
 	}
 
+	defaultAPIAllowList, err := cidr.ParseFromCommaSeparated(defaultAPIAllowListFlag)
+	if err != nil {
+		setupLog.Error(err, "failed to parse default allow list cidrs")
+		os.Exit(1)
+	}
+
 	securityPolicyReconciler := security.NewPolicyReconciler(
-		[]string{},
+		defaultAPIAllowList,
 		managementCluster,
 		securityPolicyClient,
 		ipResolver,

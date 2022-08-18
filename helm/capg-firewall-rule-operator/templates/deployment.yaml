@@ -37,6 +37,8 @@ spec:
             - {{ .Values.managementClusterName }}
             - "--management-cluster-namespace"
             - {{ .Values.managementClusterNamespace }}
+            - "--default-api-allow-list"
+            - {{ .Values.defaultAPIAllowList }}
           resources:
             requests:
               cpu: 100m

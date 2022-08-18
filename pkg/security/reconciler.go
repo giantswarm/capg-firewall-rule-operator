@@ -51,28 +51,21 @@ type PolicyReconciler struct {
 func (r *PolicyReconciler) Reconcile(ctx context.Context, cluster *capg.GCPCluster) error {
 	logger := r.getLogger(ctx)
 
-	policyName := getAPISecurityPolicyName(cluster.Name)
-	sourceIPRanges, err := getIPRanges(logger, cluster)
+	userRules, err := r.getUserRules(logger, cluster)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	defaultRules, err := r.getDefaultRules(ctx)
 	if err != nil {
 		return errors.WithStack(err)
 	}
 
 	rules := []PolicyRule{}
-	if len(sourceIPRanges) != 0 {
-		rules = append(rules, PolicyRule{
-			Action:         ActionAllow,
-			Description:    "allow user specified ips to connect to kubernetes api",
-			SourceIPRanges: sourceIPRanges,
-			Priority:       0,
-		})
-	}
+	rules = append(rules, userRules...)
+	rules = append(rules, defaultRules...)
 
-	allowMCNATRule, err := r.getAllowMCNATRule(ctx)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-	rules = append(rules, allowMCNATRule)
-
+	policyName := getAPISecurityPolicyName(cluster.Name)
 	policy := Policy{
 		Name:          policyName,
 		Description:   "allow IPs to connect to kubernetes api",
@@ -88,17 +81,47 @@ func (r *PolicyReconciler) ReconcileDelete(ctx context.Context, cluster *capg.GC
 	return r.securityPolicyClient.DeletePolicy(ctx, cluster, policyName)
 }
 
-func (r *PolicyReconciler) getAllowMCNATRule(ctx context.Context) (PolicyRule, error) {
-	mcNATIPs, err := r.ipResolver.GetIPs(ctx, r.managementCluster)
+func (r *PolicyReconciler) getUserRules(logger logr.Logger, cluster *capg.GCPCluster) ([]PolicyRule, error) {
+	sourceIPRanges, err := getIPRanges(logger, cluster)
 	if err != nil {
-		return PolicyRule{}, errors.WithStack(err)
+		return nil, errors.WithStack(err)
 	}
 
-	return PolicyRule{
+	rules := []PolicyRule{}
+	if len(sourceIPRanges) != 0 {
+		rules = append(rules, PolicyRule{
+			Action:         ActionAllow,
+			Description:    "allow user specified ips to connect to kubernetes api",
+			SourceIPRanges: sourceIPRanges,
+			Priority:       0,
+		})
+	}
+	return rules, nil
+}
+
+func (r *PolicyReconciler) getDefaultRules(ctx context.Context) ([]PolicyRule, error) {
+	mcNATIPs, err := r.ipResolver.GetIPs(ctx, r.managementCluster)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	allowMCNATRule := PolicyRule{
 		Action:         ActionAllow,
 		Description:    "allow MC NAT IPs",
 		SourceIPRanges: mcNATIPs,
 		Priority:       1,
+	}
+
+	allowDefaultAllowlist := PolicyRule{
+		Action:         ActionAllow,
+		Description:    "allow default IP ranges",
+		SourceIPRanges: r.defaultAPIAllowList,
+		Priority:       2,
+	}
+
+	return []PolicyRule{
+		allowMCNATRule,
+		allowDefaultAllowlist,
 	}, nil
 }
 
