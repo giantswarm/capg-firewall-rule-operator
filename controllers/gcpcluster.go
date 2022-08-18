@@ -16,6 +16,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall"
+	"github.com/giantswarm/capg-firewall-rule-operator/pkg/google"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/security"
 )
 
@@ -131,12 +132,12 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 }
 
 func (r *GCPClusterReconciler) reconcileNormal(ctx context.Context, logger logr.Logger, gcpCluster *capg.GCPCluster) (ctrl.Result, error) {
-	if gcpCluster.Status.Network.SelfLink == nil || *gcpCluster.Status.Network.SelfLink == "" {
+	if google.IsNilOrEmpty(gcpCluster.Status.Network.SelfLink) {
 		logger.Info("GCP Cluster does not have network set yet")
 		return ctrl.Result{}, nil
 	}
 
-	if gcpCluster.Status.Network.APIServerBackendService == nil || *gcpCluster.Status.Network.APIServerBackendService == "" {
+	if google.IsNilOrEmpty(gcpCluster.Status.Network.APIServerBackendService) {
 		logger.Info("GCP Cluster does not have backend service set yet")
 		return ctrl.Result{}, nil
 	}

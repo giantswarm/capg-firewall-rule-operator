@@ -18,11 +18,10 @@ func HasHttpCode(err error, statusCode int) bool {
 	return false
 }
 
-func GetResourceName(selfLink *string) string {
-	if selfLink == nil {
-		return ""
-	}
+func GetResourceName(selfLink string) string {
+	return selfLink[strings.LastIndex(selfLink, "/")+1:]
+}
 
-	s := *selfLink
-	return s[strings.LastIndex(s, "/")+1:]
+func IsNilOrEmpty(value *string) bool {
+	return value == nil || *value == ""
 }

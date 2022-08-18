@@ -58,7 +58,7 @@ func (c *Client) ApplyPolicy(ctx context.Context, cluster *capg.GCPCluster, poli
 	logger.Info("Applying security policy")
 	defer logger.Info("Done applying security policy")
 
-	if cluster.Status.Network.APIServerBackendService == nil {
+	if google.IsNilOrEmpty(cluster.Status.Network.APIServerBackendService) {
 		return errors.New("cluster does not have backend service")
 	}
 
@@ -72,7 +72,7 @@ func (c *Client) ApplyPolicy(ctx context.Context, cluster *capg.GCPCluster, poli
 
 func (c *Client) setSecurityPolicy(ctx context.Context, cluster *capg.GCPCluster, policy *computepb.SecurityPolicy) error {
 	req := &computepb.SetSecurityPolicyBackendServiceRequest{
-		BackendService: google.GetResourceName(cluster.Status.Network.APIServerBackendService),
+		BackendService: google.GetResourceName(*cluster.Status.Network.APIServerBackendService),
 		Project:        cluster.Spec.Project,
 		SecurityPolicyReferenceResource: &computepb.SecurityPolicyReference{
 			SecurityPolicy: policy.SelfLink,

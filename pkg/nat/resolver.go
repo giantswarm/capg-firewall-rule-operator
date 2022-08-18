@@ -34,14 +34,14 @@ func (r *IPResolver) GetIPs(ctx context.Context, managementCluster types.Namespa
 		return nil, errors.WithStack(err)
 	}
 
-	if isNilOrEmpty(cluster.Status.Network.Router) {
+	if google.IsNilOrEmpty(cluster.Status.Network.Router) {
 		return nil, fmt.Errorf("cluster %s/%s does not have router yet", managementCluster.Namespace, managementCluster.Name)
 	}
 
 	getRouterReq := &computepb.GetRouterRequest{
 		Project: cluster.Spec.Project,
 		Region:  cluster.Spec.Region,
-		Router:  google.GetResourceName(cluster.Status.Network.Router),
+		Router:  google.GetResourceName(*cluster.Status.Network.Router),
 	}
 	router, err := r.routers.Get(ctx, getRouterReq)
 	if err != nil {
@@ -52,7 +52,7 @@ func (r *IPResolver) GetIPs(ctx context.Context, managementCluster types.Namespa
 	for _, natGateway := range router.Nats {
 		for _, natIP := range natGateway.NatIps {
 			getAddressReq := &computepb.GetAddressRequest{
-				Address: google.GetResourceName(&natIP),
+				Address: google.GetResourceName(natIP),
 				Project: cluster.Spec.Project,
 				Region:  cluster.Spec.Region,
 			}
@@ -65,8 +65,4 @@ func (r *IPResolver) GetIPs(ctx context.Context, managementCluster types.Namespa
 	}
 
 	return ips, nil
-}
-
-func isNilOrEmpty(value *string) bool {
-	return value == nil || *value == ""
 }
