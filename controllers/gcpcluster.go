@@ -110,11 +110,6 @@ func (r *GCPClusterReconciler) reconcileNormal(ctx context.Context, logger logr.
 		return ctrl.Result{}, nil
 	}
 
-	if google.IsNilOrEmpty(gcpCluster.Status.Network.Router) {
-		logger.Info("GCP Cluster does not have a router set yet")
-		return ctrl.Result{}, nil
-	}
-
 	err := r.client.AddFinalizer(ctx, gcpCluster, FinalizerFirewall)
 	if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
