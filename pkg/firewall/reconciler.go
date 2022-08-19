@@ -40,7 +40,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, cluster *capg.GCPCluster
 	logger := r.getLogger(ctx)
 
 	ruleName := getBastionFirewallRuleName(cluster.Name)
-	tagName := fmt.Sprintf("%s-bastion", cluster.Name)
+	tagName := getBastionFirewallRuleTag(cluster.Name)
 	sourceIPRanges, err := getIPRangesFromAnnotation(logger, cluster)
 	if err != nil {
 		return errors.WithStack(err)
@@ -78,10 +78,14 @@ func getBastionFirewallRuleName(clusterName string) string {
 	return fmt.Sprintf("allow-%s-bastion-ssh", clusterName)
 }
 
+func getBastionFirewallRuleTag(clusterName string) string {
+	return fmt.Sprintf("%s-bastion", clusterName)
+}
+
 func getIPRangesFromAnnotation(logger logr.Logger, gcpCluster *capg.GCPCluster) ([]string, error) {
 	annotation, ok := gcpCluster.Annotations[AnnotationBastionAllowListSubnets]
 	if !ok {
-		logger.Info("Cluster does not have bastion allow list annotation. Using cloud default.")
+		logger.Info(fmt.Sprintf("Cluster does not have %q annotation. Using cloud default.", AnnotationBastionAllowListSubnets))
 		return nil, nil
 	}
 

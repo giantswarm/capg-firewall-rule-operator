@@ -137,7 +137,7 @@ func getAPISecurityPolicyName(clusterName string) string {
 func getIPRanges(logger logr.Logger, gcpCluster *capg.GCPCluster) ([]string, error) {
 	annotation, ok := gcpCluster.Annotations[AnnotationAPIAllowListSubnets]
 	if !ok {
-		logger.Info("Cluster does not have api allow list annotation. Skipping user rule")
+		logger.Info(fmt.Sprintf("Cluster does not have %q annotation. Skipping user rule", AnnotationAPIAllowListSubnets))
 		return nil, nil
 	}
 
