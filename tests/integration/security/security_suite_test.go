@@ -13,7 +13,7 @@ var gcpProject string
 
 func TestFirewall(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Firewall Suite")
+	RunSpecs(t, "Security Policy Suite")
 }
 
 var _ = BeforeSuite(func() {

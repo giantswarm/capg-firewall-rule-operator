@@ -46,8 +46,7 @@ var _ = Describe("Client", func() {
 		firewalls, err = compute.NewFirewallsRESTClient(ctx)
 		Expect(err).NotTo(HaveOccurred())
 
-		network = tests.GetDefaultNetwork(networks, gcpProject, name)
-
+		network = tests.GetDefaultNetwork(networks, gcpProject)
 		cluster = &capg.GCPCluster{
 			Spec: capg.GCPClusterSpec{
 				Project: gcpProject,

@@ -13,6 +13,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	capg "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,9 +23,9 @@ import (
 
 const (
 	TestDescription = "test resource for capg-firewall-rule-operator"
+	TestRegion      = "europe-west3"
 
 	defaultNetworkName     = "default"
-	backendServiceRegion   = "europe-west3"
 	backendServiceProtocol = "TCP"
 )
 
@@ -46,7 +47,10 @@ func GetEnvOrSkip(env string) string {
 func PatchClusterStatus(k8sClient client.Client, cluster *capg.GCPCluster, status capg.GCPClusterStatus) {
 	patchedCluster := cluster.DeepCopy()
 	patchedCluster.Status = status
-	Expect(k8sClient.Status().Patch(context.Background(), patchedCluster, client.MergeFrom(cluster))).To(Succeed())
+	err := k8sClient.Status().Patch(context.Background(), patchedCluster, client.MergeFrom(cluster))
+	if k8serrors.IsNotFound(err) {
+		return
+	}
 
 	nsName := types.NamespacedName{
 		Name:      cluster.Name,
@@ -81,7 +85,7 @@ func DeleteSecurityPolicy(securityPolicies *compute.SecurityPoliciesClient, gcpP
 	))
 }
 
-func GetDefaultNetwork(networks *compute.NetworksClient, gcpProject, networkName string) *computepb.Network {
+func GetDefaultNetwork(networks *compute.NetworksClient, gcpProject string) *computepb.Network {
 	ctx := context.Background()
 
 	getReq := &computepb.GetNetworkRequest{
@@ -95,6 +99,114 @@ func GetDefaultNetwork(networks *compute.NetworksClient, gcpProject, networkName
 	return network
 }
 
+func CreateIPAddress(addresses *compute.AddressesClient, gcpProject, name string) *computepb.Address {
+	ctx := context.Background()
+	ipReq := &computepb.InsertAddressRequest{
+		AddressResource: &computepb.Address{
+			AddressType: to.StringP("EXTERNAL"),
+			Description: to.StringP(TestDescription),
+			Name:        to.StringP(name),
+		},
+		Project: gcpProject,
+		Region:  TestRegion,
+	}
+	op, err := addresses.Insert(ctx, ipReq)
+	Expect(err).NotTo(HaveOccurred())
+	waitOnOperation(op)
+
+	getReq := &computepb.GetAddressRequest{
+		Address: name,
+		Project: gcpProject,
+		Region:  TestRegion,
+	}
+	address, err := addresses.Get(ctx, getReq)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(address.SelfLink).NotTo(BeNil())
+
+	return address
+}
+
+func DeleteIPAddress(addresses *compute.AddressesClient, gcpProject, name string) {
+	req := &computepb.DeleteAddressRequest{
+		Address: name,
+		Project: gcpProject,
+		Region:  TestRegion,
+	}
+
+	var op *compute.Operation
+	Eventually(func() error {
+		var err error
+		op, err = addresses.Delete(context.Background(), req)
+		return err
+	}).WithOffset(1).Should(Or(
+		Not(HaveOccurred()),
+		BeGoogleAPIErrorWithStatus(http.StatusNotFound),
+	))
+
+	if op != nil {
+		waitOnOperation(op)
+	}
+}
+
+func CreateRouter(routers *compute.RoutersClient, address *computepb.Address, network *computepb.Network, gcpProject, name string) *computepb.Router {
+	ctx := context.Background()
+
+	insertReq := &computepb.InsertRouterRequest{
+		Project: gcpProject,
+		Region:  TestRegion,
+		RouterResource: &computepb.Router{
+			Description: to.StringP(TestDescription),
+			Name:        to.StringP(name),
+			Nats: []*computepb.RouterNat{
+				{
+					Name:                          to.StringP(name),
+					NatIpAllocateOption:           to.StringP("MANUAL_ONLY"),
+					NatIps:                        []string{*address.SelfLink},
+					SourceSubnetworkIpRangesToNat: to.StringP("ALL_SUBNETWORKS_ALL_IP_RANGES"),
+				},
+			},
+			Network: network.SelfLink,
+			Region:  to.StringP(TestRegion),
+		},
+	}
+
+	op, err := routers.Insert(ctx, insertReq)
+	Expect(err).NotTo(HaveOccurred())
+	waitOnOperation(op)
+
+	getReq := &computepb.GetRouterRequest{
+		Project: gcpProject,
+		Region:  TestRegion,
+		Router:  name,
+	}
+	router, err := routers.Get(ctx, getReq)
+	Expect(err).NotTo(HaveOccurred())
+
+	return router
+}
+
+func DeleteRouter(routers *compute.RoutersClient, gcpProject, name string) {
+	req := &computepb.DeleteRouterRequest{
+		Router:  name,
+		Project: gcpProject,
+		Region:  TestRegion,
+	}
+
+	var op *compute.Operation
+	Eventually(func() error {
+		var err error
+		op, err = routers.Delete(context.Background(), req)
+		return err
+	}).WithOffset(1).Should(Or(
+		Not(HaveOccurred()),
+		BeGoogleAPIErrorWithStatus(http.StatusNotFound),
+	))
+
+	if op != nil {
+		waitOnOperation(op)
+	}
+}
+
 func CreateBackendService(backendServices *compute.BackendServicesClient, gcpProject, name string) *computepb.BackendService {
 	ctx := context.Background()
 
@@ -104,7 +216,7 @@ func CreateBackendService(backendServices *compute.BackendServicesClient, gcpPro
 			Description: to.StringP(TestDescription),
 			Name:        to.StringP(name),
 			Protocol:    to.StringP(backendServiceProtocol),
-			Region:      to.StringP(backendServiceRegion),
+			Region:      to.StringP(TestRegion),
 		},
 		Project: gcpProject,
 	}

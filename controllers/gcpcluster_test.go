@@ -19,20 +19,24 @@ import (
 	"github.com/giantswarm/to"
 
 	"github.com/giantswarm/capg-firewall-rule-operator/controllers"
-	"github.com/giantswarm/capg-firewall-rule-operator/controllers/controllersfakes"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall"
+	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall/firewallfakes"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/k8sclient"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/security"
+	"github.com/giantswarm/capg-firewall-rule-operator/pkg/security/securityfakes"
+	"github.com/giantswarm/capg-firewall-rule-operator/tests"
 )
 
 var _ = Describe("GCPClusterReconciler", func() {
 	var (
-		ctx context.Context
+		ctx               context.Context
+		managementCluster types.NamespacedName
 
 		reconciler           *controllers.GCPClusterReconciler
 		clusterClient        controllers.GCPClusterClient
-		firewallsClient      *controllersfakes.FakeFirewallsClient
-		securityPolicyClient *controllersfakes.FakeSecurityPolicyClient
+		firewallClient       *firewallfakes.FakeFirewallsClient
+		securityPolicyClient *securityfakes.FakeSecurityPolicyClient
+		ipResolver           *securityfakes.FakeClusterNATIPResolver
 
 		cluster    *capi.Cluster
 		gcpCluster *capg.GCPCluster
@@ -47,14 +51,32 @@ var _ = Describe("GCPClusterReconciler", func() {
 		ctx = log.IntoContext(context.Background(), logger)
 
 		clusterClient = k8sclient.NewGCPCluster(k8sClient)
-		firewallsClient = new(controllersfakes.FakeFirewallsClient)
-		securityPolicyClient = new(controllersfakes.FakeSecurityPolicyClient)
+		firewallClient = new(firewallfakes.FakeFirewallsClient)
+		securityPolicyClient = new(securityfakes.FakeSecurityPolicyClient)
+		ipResolver = new(securityfakes.FakeClusterNATIPResolver)
+
+		ipResolver.GetIPsReturns([]string{"10.1.1.24", "192.168.1.218"}, nil)
+
+		managementCluster = types.NamespacedName{
+			Name:      "the-mc-name",
+			Namespace: "the-namespace",
+		}
+
+		defaultAPIAllowList := []string{"10.128.0.0/24", "10.230.0.0/24"}
+		securityPolicyReconciler := security.NewPolicyReconciler(
+			defaultAPIAllowList,
+			managementCluster,
+			securityPolicyClient,
+			ipResolver,
+		)
+
+		defaultBastionHostAllowList := []string{"192.168.0.0/24", "172.158.0.0/24"}
+		firewallReconciler := firewall.NewRuleReconciler(defaultBastionHostAllowList, firewallClient)
 
 		reconciler = controllers.NewGCPClusterReconciler(
-			logger,
 			clusterClient,
-			firewallsClient,
-			securityPolicyClient,
+			firewallReconciler,
+			securityPolicyReconciler,
 		)
 
 		cluster = &capi.Cluster{
@@ -70,8 +92,8 @@ var _ = Describe("GCPClusterReconciler", func() {
 				Name:      "the-gcp-cluster",
 				Namespace: namespace,
 				Annotations: map[string]string{
-					controllers.AnnotationBastionAllowListSubnets: "128.0.0.0/24,192.168.0.0/24",
-					controllers.AnnotationAPIAllowListSubnets:     "10.0.0.0/24,172.158.0.0/24",
+					firewall.AnnotationBastionAllowListSubnets: "128.0.0.0/24,192.168.0.0/24",
+					security.AnnotationAPIAllowListSubnets:     "10.0.0.0/24,172.158.0.0/24",
 				},
 				OwnerReferences: []metav1.OwnerReference{
 					{
@@ -95,7 +117,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 				APIServerBackendService: to.StringP("something"),
 			},
 		}
-		patchClusterStatus(gcpCluster, status)
+		tests.PatchClusterStatus(k8sClient, gcpCluster, status)
 
 		request = ctrl.Request{
 			NamespacedName: types.NamespacedName{
@@ -117,10 +139,10 @@ var _ = Describe("GCPClusterReconciler", func() {
 		Expect(actualCluster.Finalizers).To(ContainElement(controllers.FinalizerFirewall))
 	})
 
-	It("uses the firewall client to create firewall rules for the bastions", func() {
-		Expect(firewallsClient.ApplyRuleCallCount()).To(Equal(1))
+	It("applies the firewall rules for the bastions", func() {
+		Expect(firewallClient.ApplyRuleCallCount()).To(Equal(1))
 
-		_, actualCluster, actualRule := firewallsClient.ApplyRuleArgsForCall(0)
+		_, actualCluster, actualRule := firewallClient.ApplyRuleArgsForCall(0)
 		Expect(actualCluster.Name).To(Equal("the-gcp-cluster"))
 		Expect(*actualCluster.Status.Network.SelfLink).To(Equal("something"))
 		Expect(actualRule.Name).To(Equal("allow-the-gcp-cluster-bastion-ssh"))
@@ -132,27 +154,51 @@ var _ = Describe("GCPClusterReconciler", func() {
 		Expect(actualRule.Direction).To(Equal(firewall.DirectionIngress))
 		Expect(actualRule.Name).To(Equal("allow-the-gcp-cluster-bastion-ssh"))
 		Expect(actualRule.TargetTags).To(Equal([]string{"the-gcp-cluster-bastion"}))
-		Expect(actualRule.SourceRanges).To(Equal([]string{"128.0.0.0/24", "192.168.0.0/24"}))
+		Expect(actualRule.SourceRanges).To(Equal([]string{"128.0.0.0/24", "192.168.0.0/24", "192.168.0.0/24", "172.158.0.0/24"}))
 	})
 
-	It("uses the security policy client to create security policies for the kubernetes api", func() {
-		Expect(securityPolicyClient.ApplyPolicyCallCount()).To(Equal(1))
+	It("applies the security policies for the kubernetes api", func() {
+		By("using the ip resolver to get the MC's NAT IPs")
+		Expect(ipResolver.GetIPsCallCount()).To(Equal(1))
+		_, clusterName := ipResolver.GetIPsArgsForCall(0)
+		Expect(clusterName).To(Equal(managementCluster))
 
+		Expect(securityPolicyClient.ApplyPolicyCallCount()).To(Equal(1))
 		_, actualCluster, actualPolicy := securityPolicyClient.ApplyPolicyArgsForCall(0)
 		Expect(actualCluster.Name).To(Equal("the-gcp-cluster"))
 		Expect(*actualCluster.Status.Network.SelfLink).To(Equal("something"))
 		Expect(actualPolicy.Name).To(Equal("allow-the-gcp-cluster-apiserver"))
 		Expect(actualPolicy.Description).To(Equal("allow IPs to connect to kubernetes api"))
 		Expect(actualPolicy.DefaultAction).To(Equal(security.ActionDeny403))
-		Expect(actualPolicy.Rules).To(ConsistOf(security.PolicyRule{
-			Action:      security.ActionAllow,
-			Description: "allow user specified ips to connect to kubernetes api",
-			SourceIPRanges: []string{
-				"10.0.0.0/24",
-				"172.158.0.0/24",
+		Expect(actualPolicy.Rules).To(ConsistOf(
+			security.PolicyRule{
+				Action:      security.ActionAllow,
+				Description: "allow user specified ips to connect to kubernetes api",
+				SourceIPRanges: []string{
+					"10.0.0.0/24",
+					"172.158.0.0/24",
+				},
+				Priority: 0,
 			},
-			Priority: 0,
-		}))
+			security.PolicyRule{
+				Action:      security.ActionAllow,
+				Description: "allow MC NAT IPs",
+				SourceIPRanges: []string{
+					"10.1.1.24",
+					"192.168.1.218",
+				},
+				Priority: 1,
+			},
+			security.PolicyRule{
+				Action:      security.ActionAllow,
+				Description: "allow default IP ranges",
+				SourceIPRanges: []string{
+					"10.128.0.0/24",
+					"10.230.0.0/24",
+				},
+				Priority: 2,
+			},
+		))
 	})
 
 	When("the gcp cluster is marked for deletion", func() {
@@ -175,9 +221,9 @@ var _ = Describe("GCPClusterReconciler", func() {
 		})
 
 		It("uses the firewall client to remove firewall rules", func() {
-			Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(1))
+			Expect(firewallClient.DeleteRuleCallCount()).To(Equal(1))
 
-			_, actualCluster, actualRule := firewallsClient.DeleteRuleArgsForCall(0)
+			_, actualCluster, actualRule := firewallClient.DeleteRuleArgsForCall(0)
 			Expect(actualCluster.Name).To(Equal("the-gcp-cluster"))
 			Expect(*actualCluster.Status.Network.SelfLink).To(Equal("something"))
 			Expect(actualRule).To(Equal("allow-the-gcp-cluster-bastion-ssh"))
@@ -195,11 +241,11 @@ var _ = Describe("GCPClusterReconciler", func() {
 		When("the cluster does not have Status.Network set", func() {
 			BeforeEach(func() {
 				status := capg.GCPClusterStatus{Ready: true}
-				patchClusterStatus(gcpCluster, status)
+				tests.PatchClusterStatus(k8sClient, gcpCluster, status)
 			})
 
 			It("removes the firewall rule", func() {
-				Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(1))
+				Expect(firewallClient.DeleteRuleCallCount()).To(Equal(1))
 			})
 
 			When("the Status.Network.SelfLink is empty", func() {
@@ -207,14 +253,15 @@ var _ = Describe("GCPClusterReconciler", func() {
 					status := capg.GCPClusterStatus{
 						Ready: true,
 						Network: capg.Network{
-							SelfLink: to.StringP(""),
+							SelfLink:                to.StringP(""),
+							APIServerBackendService: to.StringP("something"),
 						},
 					}
-					patchClusterStatus(gcpCluster, status)
+					tests.PatchClusterStatus(k8sClient, gcpCluster, status)
 				})
 
 				It("removes the firewall rule", func() {
-					Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(1))
+					Expect(firewallClient.DeleteRuleCallCount()).To(Equal(1))
 				})
 			})
 
@@ -223,21 +270,22 @@ var _ = Describe("GCPClusterReconciler", func() {
 					status := capg.GCPClusterStatus{
 						Ready: true,
 						Network: capg.Network{
+							SelfLink:                to.StringP("something"),
 							APIServerBackendService: to.StringP(""),
 						},
 					}
-					patchClusterStatus(gcpCluster, status)
+					tests.PatchClusterStatus(k8sClient, gcpCluster, status)
 				})
 
 				It("removes the firewall rule", func() {
-					Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(1))
+					Expect(firewallClient.DeleteRuleCallCount()).To(Equal(1))
 				})
 			})
 		})
 
 		When("the firewall client fails", func() {
 			BeforeEach(func() {
-				firewallsClient.DeleteRuleReturns(errors.New("boom"))
+				firewallClient.DeleteRuleReturns(errors.New("boom"))
 			})
 
 			It("returns an error", func() {
@@ -276,7 +324,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 		func(annotation string) {
 			patchedCluster := gcpCluster.DeepCopy()
 			patchedCluster.Annotations = map[string]string{
-				controllers.AnnotationBastionAllowListSubnets: annotation,
+				firewall.AnnotationBastionAllowListSubnets: annotation,
 			}
 			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
 
@@ -292,7 +340,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 		func(annotation string) {
 			patchedCluster := gcpCluster.DeepCopy()
 			patchedCluster.Annotations = map[string]string{
-				controllers.AnnotationAPIAllowListSubnets: annotation,
+				security.AnnotationAPIAllowListSubnets: annotation,
 			}
 			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
 
@@ -308,7 +356,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 		BeforeEach(func() {
 			patchedCluster := gcpCluster.DeepCopy()
 			patchedCluster.Annotations = map[string]string{
-				controllers.AnnotationAPIAllowListSubnets: "10.0.0.0/24",
+				security.AnnotationAPIAllowListSubnets: "10.0.0.0/24",
 			}
 			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
 		})
@@ -316,9 +364,9 @@ var _ = Describe("GCPClusterReconciler", func() {
 		It("does not return an error", func() {
 			Expect(reconcileErr).NotTo(HaveOccurred())
 
-			Expect(firewallsClient.ApplyRuleCallCount()).To(Equal(1))
-			_, _, actualRule := firewallsClient.ApplyRuleArgsForCall(0)
-			Expect(actualRule.SourceRanges).To(BeZero())
+			Expect(firewallClient.ApplyRuleCallCount()).To(Equal(1))
+			_, _, actualRule := firewallClient.ApplyRuleArgsForCall(0)
+			Expect(actualRule.SourceRanges).To(ConsistOf("192.168.0.0/24", "172.158.0.0/24"))
 		})
 	})
 
@@ -326,17 +374,19 @@ var _ = Describe("GCPClusterReconciler", func() {
 		BeforeEach(func() {
 			patchedCluster := gcpCluster.DeepCopy()
 			patchedCluster.Annotations = map[string]string{
-				controllers.AnnotationBastionAllowListSubnets: "10.0.0.0/24",
+				firewall.AnnotationBastionAllowListSubnets: "10.0.0.0/24",
 			}
 			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
 		})
 
-		It("does not return an error", func() {
+		It("still applies the default rules", func() {
 			Expect(reconcileErr).NotTo(HaveOccurred())
 
 			Expect(securityPolicyClient.ApplyPolicyCallCount()).To(Equal(1))
 			_, _, actualPolicy := securityPolicyClient.ApplyPolicyArgsForCall(0)
-			Expect(actualPolicy.Rules).To(BeEmpty())
+			Expect(actualPolicy.Rules).To(HaveLen(2))
+			Expect(actualPolicy.Rules[0].Description).To(Equal("allow MC NAT IPs"))
+			Expect(actualPolicy.Rules[1].Description).To(Equal("allow default IP ranges"))
 		})
 	})
 
@@ -381,7 +431,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 	When("the cluster does not have Status.Network set yet", func() {
 		BeforeEach(func() {
 			status := capg.GCPClusterStatus{Ready: true}
-			patchClusterStatus(gcpCluster, status)
+			tests.PatchClusterStatus(k8sClient, gcpCluster, status)
 		})
 
 		It("does not requeue the event", func() {
@@ -389,8 +439,8 @@ var _ = Describe("GCPClusterReconciler", func() {
 			Expect(result.RequeueAfter).To(BeZero())
 			Expect(reconcileErr).NotTo(HaveOccurred())
 
-			Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(0))
-			Expect(firewallsClient.ApplyRuleCallCount()).To(Equal(0))
+			Expect(firewallClient.DeleteRuleCallCount()).To(Equal(0))
+			Expect(firewallClient.ApplyRuleCallCount()).To(Equal(0))
 		})
 
 		When("the Status.Network.SelfLink is empty", func() {
@@ -398,11 +448,11 @@ var _ = Describe("GCPClusterReconciler", func() {
 				status := capg.GCPClusterStatus{
 					Ready: true,
 					Network: capg.Network{
-						SelfLink:         to.StringP(""),
-						APIServerAddress: to.StringP("something"),
+						SelfLink:                to.StringP(""),
+						APIServerBackendService: to.StringP("something"),
 					},
 				}
-				patchClusterStatus(gcpCluster, status)
+				tests.PatchClusterStatus(k8sClient, gcpCluster, status)
 			})
 
 			It("does not requeue the event", func() {
@@ -410,8 +460,8 @@ var _ = Describe("GCPClusterReconciler", func() {
 				Expect(result.RequeueAfter).To(BeZero())
 				Expect(reconcileErr).NotTo(HaveOccurred())
 
-				Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(0))
-				Expect(firewallsClient.ApplyRuleCallCount()).To(Equal(0))
+				Expect(firewallClient.DeleteRuleCallCount()).To(Equal(0))
+				Expect(firewallClient.ApplyRuleCallCount()).To(Equal(0))
 			})
 		})
 
@@ -420,11 +470,11 @@ var _ = Describe("GCPClusterReconciler", func() {
 				status := capg.GCPClusterStatus{
 					Ready: true,
 					Network: capg.Network{
-						SelfLink:         to.StringP("something"),
-						APIServerAddress: to.StringP(""),
+						SelfLink:                to.StringP("something"),
+						APIServerBackendService: to.StringP(""),
 					},
 				}
-				patchClusterStatus(gcpCluster, status)
+				tests.PatchClusterStatus(k8sClient, gcpCluster, status)
 			})
 
 			It("does not requeue the event", func() {
@@ -432,8 +482,8 @@ var _ = Describe("GCPClusterReconciler", func() {
 				Expect(result.RequeueAfter).To(BeZero())
 				Expect(reconcileErr).NotTo(HaveOccurred())
 
-				Expect(firewallsClient.DeleteRuleCallCount()).To(Equal(0))
-				Expect(firewallsClient.ApplyRuleCallCount()).To(Equal(0))
+				Expect(firewallClient.DeleteRuleCallCount()).To(Equal(0))
+				Expect(firewallClient.ApplyRuleCallCount()).To(Equal(0))
 			})
 		})
 	})
@@ -470,7 +520,17 @@ var _ = Describe("GCPClusterReconciler", func() {
 
 	When("the firewall client fails", func() {
 		BeforeEach(func() {
-			firewallsClient.ApplyRuleReturns(errors.New("boom"))
+			firewallClient.ApplyRuleReturns(errors.New("boom"))
+		})
+
+		It("returns an error", func() {
+			Expect(reconcileErr).To(MatchError(ContainSubstring("boom")))
+		})
+	})
+
+	When("the IP resolver fails", func() {
+		BeforeEach(func() {
+			ipResolver.GetIPsReturns([]string{}, errors.New("boom"))
 		})
 
 		It("returns an error", func() {

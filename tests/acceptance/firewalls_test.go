@@ -13,6 +13,7 @@ import (
 	compute "cloud.google.com/go/compute/apiv1"
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	capg "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
@@ -20,7 +21,6 @@ import (
 
 	"github.com/giantswarm/to"
 
-	"github.com/giantswarm/capg-firewall-rule-operator/controllers"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/firewall"
 	"github.com/giantswarm/capg-firewall-rule-operator/pkg/security"
 	"github.com/giantswarm/capg-firewall-rule-operator/tests"
@@ -35,13 +35,17 @@ var _ = Describe("Firewalls", func() {
 		firewalls        *compute.FirewallsClient
 		securityPolicies *compute.SecurityPoliciesClient
 		backendServices  *compute.BackendServicesClient
+		addresses        *compute.AddressesClient
+		routers          *compute.RoutersClient
 
 		name               string
 		firewallName       string
 		securityPolicyName string
 		cluster            *capi.Cluster
 		network            *computepb.Network
-		gcpCluster         *capg.GCPCluster
+		address            *computepb.Address
+		workloadCluster    *capg.GCPCluster
+		managementCluster  *capg.GCPCluster
 	)
 
 	BeforeEach(func() {
@@ -56,6 +60,12 @@ var _ = Describe("Firewalls", func() {
 		firewalls, err = compute.NewFirewallsRESTClient(ctx)
 		Expect(err).NotTo(HaveOccurred())
 
+		addresses, err = compute.NewAddressesRESTClient(ctx)
+		Expect(err).NotTo(HaveOccurred())
+
+		routers, err = compute.NewRoutersRESTClient(ctx)
+		Expect(err).NotTo(HaveOccurred())
+
 		securityPolicies, err = compute.NewSecurityPoliciesRESTClient(ctx)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -65,8 +75,10 @@ var _ = Describe("Firewalls", func() {
 		name = tests.GenerateGUID("test")
 		securityPolicyName = fmt.Sprintf("allow-%s-apiserver", name)
 		firewallName = fmt.Sprintf("allow-%s-bastion-ssh", name)
-		network = tests.GetDefaultNetwork(networks, gcpProject, name)
+		network = tests.GetDefaultNetwork(networks, gcpProject)
 		backendService := tests.CreateBackendService(backendServices, gcpProject, name)
+		address = tests.CreateIPAddress(addresses, gcpProject, name)
+		router := tests.CreateRouter(routers, address, network, gcpProject, name)
 
 		cluster = &capi.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
@@ -84,13 +96,32 @@ var _ = Describe("Firewalls", func() {
 		}
 		Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
-		gcpCluster = &capg.GCPCluster{
+		managementCluster = &capg.GCPCluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      managementClusterName.Name,
+				Namespace: managementClusterName.Namespace,
+			},
+			Spec: capg.GCPClusterSpec{
+				Project: gcpProject,
+				Region:  tests.TestRegion,
+			},
+		}
+		Expect(k8sClient.Create(ctx, managementCluster)).To(Succeed())
+		mcStatus := capg.GCPClusterStatus{
+			Ready: true,
+			Network: capg.Network{
+				Router: router.SelfLink,
+			},
+		}
+		tests.PatchClusterStatus(k8sClient, managementCluster, mcStatus)
+
+		workloadCluster = &capg.GCPCluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
 				Namespace: namespace,
 				Annotations: map[string]string{
-					controllers.AnnotationBastionAllowListSubnets: "128.0.0.0/24,192.168.0.0/24",
-					controllers.AnnotationAPIAllowListSubnets:     "10.0.0.0/24,172.158.0.0/24",
+					firewall.AnnotationBastionAllowListSubnets: "128.0.0.0/24,192.168.0.0/24",
+					security.AnnotationAPIAllowListSubnets:     "10.0.0.0/24,172.158.0.0/24",
 				},
 				OwnerReferences: []metav1.OwnerReference{
 					{
@@ -105,142 +136,141 @@ var _ = Describe("Firewalls", func() {
 				Project: gcpProject,
 			},
 		}
-		Expect(k8sClient.Create(ctx, gcpCluster)).To(Succeed())
+		Expect(k8sClient.Create(ctx, workloadCluster)).To(Succeed())
 
-		status := capg.GCPClusterStatus{
+		wcStatus := capg.GCPClusterStatus{
 			Ready: true,
 			Network: capg.Network{
 				SelfLink:                network.SelfLink,
 				APIServerBackendService: backendService.SelfLink,
 			},
 		}
-
-		tests.PatchClusterStatus(k8sClient, gcpCluster, status)
+		tests.PatchClusterStatus(k8sClient, workloadCluster, wcStatus)
 	})
 
 	AfterEach(func() {
-		tests.DeleteFirewall(firewalls, gcpProject, firewallName)
 		tests.DeleteBackendService(backendServices, gcpProject, name)
+		status := capg.GCPClusterStatus{Ready: true}
+		tests.PatchClusterStatus(k8sClient, workloadCluster, status)
+
+		err := k8sClient.Delete(ctx, workloadCluster)
+		if !k8serrors.IsNotFound(err) {
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		Expect(k8sClient.Delete(ctx, managementCluster)).To(Succeed())
+
+		tests.DeleteFirewall(firewalls, gcpProject, firewallName)
 		tests.DeleteSecurityPolicy(securityPolicies, gcpProject, securityPolicyName)
+		tests.DeleteRouter(routers, gcpProject, name)
+		tests.DeleteIPAddress(addresses, gcpProject, name)
 	})
 
-	When("the cluster is created", func() {
-		AfterEach(func() {
-			status := capg.GCPClusterStatus{Ready: true}
-			tests.PatchClusterStatus(k8sClient, gcpCluster, status)
+	It("applies firewall rules on the cluster", func() {
+		By("creating the bastion firewall rule")
+		getFirewall := &computepb.GetFirewallRequest{
+			Firewall: firewallName,
+			Project:  gcpProject,
+		}
+		var actualFirewall *computepb.Firewall
+		Eventually(func() error {
+			var err error
+			actualFirewall, err = firewalls.Get(ctx, getFirewall)
+			return err
+		}).Should(Succeed())
 
-			Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
-		})
+		Expect(*actualFirewall.Name).To(Equal(firewallName))
+		Expect(*actualFirewall.Direction).To(Equal(firewall.DirectionIngress))
+		Expect(*actualFirewall.Description).To(Equal("allow port 22 for SSH"))
+		Expect(actualFirewall.Network).To(Equal(network.SelfLink))
+		Expect(actualFirewall.TargetTags).To(ConsistOf(fmt.Sprintf("%s-bastion", name)))
+		Expect(actualFirewall.Allowed).To(HaveLen(1))
+		Expect(actualFirewall.Allowed[0].IPProtocol).To(Equal(to.StringP("tcp")))
+		Expect(actualFirewall.Allowed[0].Ports).To(ConsistOf("22"))
+		expectedSourceRanges := []string{"128.0.0.0/24", "192.168.0.0/24"}
+		expectedSourceRanges = append(expectedSourceRanges, defaultBastionHostAllowList...)
+		Expect(actualFirewall.SourceRanges).To(ConsistOf(expectedSourceRanges))
 
-		It("creates the firewall rule", func() {
-			req := &computepb.GetFirewallRequest{
-				Firewall: firewallName,
-				Project:  gcpProject,
-			}
-			var actualFirewall *computepb.Firewall
-			Eventually(func() error {
-				var err error
-				actualFirewall, err = firewalls.Get(ctx, req)
-				return err
-			}).Should(Succeed())
+		By("creating the kube api security policy")
+		getSecurityPolicy := &computepb.GetSecurityPolicyRequest{
+			Project:        gcpProject,
+			SecurityPolicy: securityPolicyName,
+		}
 
-			Expect(*actualFirewall.Name).To(Equal(firewallName))
-			Expect(*actualFirewall.Direction).To(Equal(firewall.DirectionIngress))
-			Expect(*actualFirewall.Description).To(Equal("allow port 22 for SSH"))
-			Expect(actualFirewall.Network).To(Equal(network.SelfLink))
-			Expect(actualFirewall.TargetTags).To(ConsistOf(fmt.Sprintf("%s-bastion", name)))
-			Expect(actualFirewall.Allowed).To(HaveLen(1))
-			Expect(actualFirewall.Allowed[0].IPProtocol).To(Equal(to.StringP("tcp")))
-			Expect(actualFirewall.Allowed[0].Ports).To(ConsistOf("22"))
-			Expect(actualFirewall.SourceRanges).To(ConsistOf("128.0.0.0/24", "192.168.0.0/24"))
-		})
+		var securityPolicy *computepb.SecurityPolicy
+		Eventually(func() error {
+			var err error
+			securityPolicy, err = securityPolicies.Get(ctx, getSecurityPolicy)
+			return err
+		}).Should(Succeed())
 
-		It("creates the security policy", func() {
-			getSecurityPolicy := &computepb.GetSecurityPolicyRequest{
-				Project:        gcpProject,
-				SecurityPolicy: securityPolicyName,
-			}
+		Expect(*securityPolicy.Name).To(Equal(securityPolicyName))
+		Expect(*securityPolicy.Description).To(Equal("allow IPs to connect to kubernetes api"))
 
-			var securityPolicy *computepb.SecurityPolicy
-			Eventually(func() error {
-				var err error
-				securityPolicy, err = securityPolicies.Get(ctx, getSecurityPolicy)
-				return err
-			}).Should(Succeed())
+		By("creating the user specified rule in the policy")
+		rule := securityPolicy.Rules[0]
+		Expect(*rule.Action).To(Equal(security.ActionAllow))
+		Expect(*rule.Description).To(Equal("allow user specified ips to connect to kubernetes api"))
+		Expect(*rule.Priority).To(Equal(int32(0)))
+		Expect(rule.Match).NotTo(BeNil())
+		Expect(rule.Match.Config).NotTo(BeNil())
+		Expect(rule.Match.Config.SrcIpRanges).To(ConsistOf(
+			"10.0.0.0/24",
+			"172.158.0.0/24",
+		))
 
-			Expect(*securityPolicy.Name).To(Equal(securityPolicyName))
-			Expect(*securityPolicy.Description).To(Equal("allow IPs to connect to kubernetes api"))
-			By("creating the rules in the policy")
-			rule := securityPolicy.Rules[0]
-			Expect(*rule.Action).To(Equal(security.ActionAllow))
-			Expect(*rule.Description).To(Equal("allow user specified ips to connect to kubernetes api"))
-			Expect(*rule.Priority).To(Equal(int32(0)))
-			Expect(rule.Match).NotTo(BeNil())
-			Expect(rule.Match.Config).NotTo(BeNil())
-			Expect(rule.Match.Config.SrcIpRanges).To(ConsistOf(
-				"10.0.0.0/24",
-				"172.158.0.0/24",
-			))
+		By("creating the defualt MC NAT IPs rule in the policy")
+		defaultNATRule := securityPolicy.Rules[1]
+		Expect(*defaultNATRule.Action).To(Equal(security.ActionAllow))
+		Expect(*defaultNATRule.Description).To(Equal("allow MC NAT IPs"))
+		Expect(*defaultNATRule.Priority).To(Equal(int32(1)))
+		Expect(defaultNATRule.Match).NotTo(BeNil())
+		Expect(defaultNATRule.Match.Config).NotTo(BeNil())
+		Expect(defaultNATRule.Match.Config.SrcIpRanges).To(ConsistOf(*address.Address))
 
-			By("creating the rules in the policy")
-			defaultRule := securityPolicy.Rules[1]
-			Expect(*defaultRule.Action).To(Equal(security.ActionDeny403))
-			Expect(*defaultRule.Description).To(Equal(security.DefaultRuleDescription))
-			Expect(*defaultRule.Priority).To(Equal(int32(math.MaxInt32)))
-			Expect(defaultRule.Match).NotTo(BeNil())
-			Expect(defaultRule.Match.Config).NotTo(BeNil())
-			Expect(defaultRule.Match.Config.SrcIpRanges).To(ConsistOf(security.DefaultRuleIPRanges))
-		})
-	})
+		By("creating the defualt allow list rule in the policy")
+		defaultAllowListRule := securityPolicy.Rules[2]
+		Expect(*defaultAllowListRule.Action).To(Equal(security.ActionAllow))
+		Expect(*defaultAllowListRule.Description).To(Equal("allow default IP ranges"))
+		Expect(*defaultAllowListRule.Priority).To(Equal(int32(2)))
+		Expect(defaultAllowListRule.Match).NotTo(BeNil())
+		Expect(defaultAllowListRule.Match.Config).NotTo(BeNil())
+		Expect(defaultAllowListRule.Match.Config.SrcIpRanges).To(ConsistOf(defaultAPIAllowList))
 
-	When("the cluster is deleted", func() {
-		BeforeEach(func() {
-			req := &computepb.GetFirewallRequest{
-				Firewall: firewallName,
-				Project:  gcpProject,
-			}
-			Eventually(func() error {
-				_, err := firewalls.Get(ctx, req)
-				return err
-			}).Should(Succeed())
+		By("creating the default policy behaviour rule")
+		defaultRule := securityPolicy.Rules[3]
+		Expect(*defaultRule.Action).To(Equal(security.ActionDeny403))
+		Expect(*defaultRule.Description).To(Equal(security.DefaultRuleDescription))
+		Expect(*defaultRule.Priority).To(Equal(int32(math.MaxInt32)))
+		Expect(defaultRule.Match).NotTo(BeNil())
+		Expect(defaultRule.Match.Config).NotTo(BeNil())
+		Expect(defaultRule.Match.Config.SrcIpRanges).To(ConsistOf(security.DefaultRuleIPRanges))
 
-			status := capg.GCPClusterStatus{Ready: true}
-			tests.PatchClusterStatus(k8sClient, gcpCluster, status)
+		tests.DeleteBackendService(backendServices, gcpProject, name)
+		status := capg.GCPClusterStatus{Ready: true}
+		tests.PatchClusterStatus(k8sClient, workloadCluster, status)
 
-			Expect(k8sClient.Delete(ctx, gcpCluster)).To(Succeed())
-		})
+		Expect(k8sClient.Delete(ctx, workloadCluster)).To(Succeed())
 
-		It("does not prevent cluster deletion", func() {
-			nsName := types.NamespacedName{
-				Name:      gcpCluster.Name,
-				Namespace: namespace,
-			}
+		By("not preventing cluster deletion")
+		nsName := types.NamespacedName{
+			Name:      workloadCluster.Name,
+			Namespace: workloadCluster.Namespace,
+		}
+		Eventually(func() error {
+			return k8sClient.Get(ctx, nsName, &capg.GCPCluster{})
+		}).ShouldNot(Succeed())
 
-			Eventually(func() error {
-				return k8sClient.Get(ctx, nsName, &capg.GCPCluster{})
-			}).ShouldNot(Succeed())
-		})
+		By("removing the firewall rule")
+		Eventually(func() error {
+			_, err := firewalls.Get(ctx, getFirewall)
+			return err
+		}).Should(BeGoogleAPIErrorWithStatus(http.StatusNotFound))
 
-		It("removes the firewall rule", func() {
-			req := &computepb.GetFirewallRequest{
-				Firewall: firewallName,
-				Project:  gcpProject,
-			}
-			Eventually(func() error {
-				_, err := firewalls.Get(ctx, req)
-				return err
-			}).Should(BeGoogleAPIErrorWithStatus(http.StatusNotFound))
-		})
-
-		It("removes the security policy", func() {
-			req := &computepb.GetSecurityPolicyRequest{
-				SecurityPolicy: securityPolicyName,
-				Project:        gcpProject,
-			}
-			Eventually(func() error {
-				_, err := securityPolicies.Get(ctx, req)
-				return err
-			}).Should(BeGoogleAPIErrorWithStatus(http.StatusNotFound))
-		})
+		By("removing the security policy")
+		Eventually(func() error {
+			_, err := securityPolicies.Get(ctx, getSecurityPolicy)
+			return err
+		}).Should(BeGoogleAPIErrorWithStatus(http.StatusNotFound))
 	})
 })

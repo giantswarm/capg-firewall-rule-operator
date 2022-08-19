@@ -32,6 +32,15 @@ spec:
               value: /home/.gcp/credentials
           command:
             - /manager
+          args:
+            - "--management-cluster-name"
+            - {{ .Values.managementClusterName }}
+            - "--management-cluster-namespace"
+            - {{ .Values.managementClusterNamespace }}
+            - "--default-api-allow-list"
+            - {{ .Values.defaultAPIAllowList }}
+            - "--default-bastion-host-allow-list"
+            - {{ .Values.defaultBastionHostAllowList }}
           resources:
             requests:
               cpu: 100m
