@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Manually list NAT IPs and filter instead of getting them from the Router.
+
 ## [0.5.0] - 2022-08-23
 
 ## [0.4.1] - 2022-07-20
