@@ -145,6 +145,14 @@ var _ = Describe("Client", func() {
 					"10.1.0.0/24",
 					"172.158.1.0/24",
 				}
+				policy.Rules = append(policy.Rules, security.PolicyRule{
+					Action:      security.ActionAllow,
+					Description: tests.TestDescription,
+					SourceIPRanges: []string{
+						"10.255.0.0/24",
+					},
+					Priority: 3,
+				})
 			})
 
 			It("updates the rule", func() {
@@ -160,9 +168,9 @@ var _ = Describe("Client", func() {
 
 				Expect(*securityPolicy.Name).To(Equal(name))
 				Expect(*securityPolicy.Description).To(Equal(tests.TestDescription))
-				Expect(securityPolicy.Rules).To(HaveLen(2))
+				Expect(securityPolicy.Rules).To(HaveLen(3))
 
-				By("creating the rules in the policy")
+				By("updating the rules in the policy")
 				rule := securityPolicy.Rules[0]
 				Expect(*rule.Action).To(Equal(security.ActionDeny403))
 				Expect(*rule.Description).To(Equal(tests.TestDescription))
@@ -174,9 +182,48 @@ var _ = Describe("Client", func() {
 					"172.158.1.0/24",
 				))
 
-				By("creating the rules in the policy")
+				By("updating the default rule")
 				defaultRule := securityPolicy.Rules[1]
 				Expect(*defaultRule.Action).To(Equal(security.ActionAllow))
+
+				By("creating the new rule in the policy")
+				newRule := securityPolicy.Rules[2]
+				Expect(*newRule.Action).To(Equal(security.ActionAllow))
+				Expect(*newRule.Description).To(Equal(tests.TestDescription))
+				Expect(*newRule.Priority).To(Equal(int32(3)))
+				Expect(newRule.Match).NotTo(BeNil())
+				Expect(newRule.Match.Config).NotTo(BeNil())
+				Expect(newRule.Match.Config.SrcIpRanges).To(ConsistOf(
+					"10.255.0.0/24",
+				))
+			})
+
+			When("the policy removes a rule", func() {
+				BeforeEach(func() {
+					policy.Rules = []security.PolicyRule{}
+				})
+
+				It("removes the rule", func() {
+					err := client.ApplyPolicy(ctx, cluster, policy)
+					Expect(err).NotTo(HaveOccurred())
+
+					getSecurityPolicy := &computepb.GetSecurityPolicyRequest{
+						Project:        gcpProject,
+						SecurityPolicy: name,
+					}
+					securityPolicy, err := securityPolicies.Get(ctx, getSecurityPolicy)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(*securityPolicy.Name).To(Equal(name))
+					Expect(*securityPolicy.Description).To(Equal(tests.TestDescription))
+					Expect(securityPolicy.Rules).To(HaveLen(1))
+
+					By("updating the default rule")
+					defaultRule := securityPolicy.Rules[0]
+					Expect(*defaultRule.Action).To(Equal(security.ActionAllow))
+					Expect(*defaultRule.Description).To(Equal(security.DefaultRuleDescription))
+					Expect(*defaultRule.Priority).To(Equal(int32(math.MaxInt32)))
+				})
 			})
 		})
 
