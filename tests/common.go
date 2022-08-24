@@ -148,7 +148,23 @@ func DeleteIPAddress(addresses *compute.AddressesClient, gcpProject, name string
 	}
 }
 
-func CreateRouter(routers *compute.RoutersClient, address *computepb.Address, network *computepb.Network, gcpProject, name string) *computepb.Router {
+func CreateEmptyRouter(routers *compute.RoutersClient, network *computepb.Network, gcpProject, name string) *computepb.Router {
+	return createGCPRouter(routers, nil, network, gcpProject, name)
+}
+
+func CreateNATRouter(routers *compute.RoutersClient, address *computepb.Address, network *computepb.Network, gcpProject, name string) *computepb.Router {
+	nats := []*computepb.RouterNat{
+		{
+			Name:                          to.StringP(name),
+			NatIpAllocateOption:           to.StringP("MANUAL_ONLY"),
+			NatIps:                        []string{*address.SelfLink},
+			SourceSubnetworkIpRangesToNat: to.StringP("ALL_SUBNETWORKS_ALL_IP_RANGES"),
+		},
+	}
+	return createGCPRouter(routers, nats, network, gcpProject, name)
+}
+
+func createGCPRouter(routers *compute.RoutersClient, nats []*computepb.RouterNat, network *computepb.Network, gcpProject, name string) *computepb.Router {
 	ctx := context.Background()
 
 	insertReq := &computepb.InsertRouterRequest{
@@ -157,16 +173,9 @@ func CreateRouter(routers *compute.RoutersClient, address *computepb.Address, ne
 		RouterResource: &computepb.Router{
 			Description: to.StringP(TestDescription),
 			Name:        to.StringP(name),
-			Nats: []*computepb.RouterNat{
-				{
-					Name:                          to.StringP(name),
-					NatIpAllocateOption:           to.StringP("MANUAL_ONLY"),
-					NatIps:                        []string{*address.SelfLink},
-					SourceSubnetworkIpRangesToNat: to.StringP("ALL_SUBNETWORKS_ALL_IP_RANGES"),
-				},
-			},
-			Network: network.SelfLink,
-			Region:  to.StringP(TestRegion),
+			Nats:        nats,
+			Network:     network.SelfLink,
+			Region:      to.StringP(TestRegion),
 		},
 	}
 
