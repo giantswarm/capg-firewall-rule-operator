@@ -79,7 +79,7 @@ var _ = Describe("Client", func() {
 			BeforeEach(func() {
 				network := tests.GetDefaultNetwork(networks, gcpProject)
 				address = tests.CreateIPAddress(addresses, gcpProject, name)
-				router := tests.CreateRouter(routers, address, network, gcpProject, name)
+				router := tests.CreateNATRouter(routers, address, network, gcpProject, name)
 
 				status := capg.GCPClusterStatus{
 					Ready: true,
@@ -101,51 +101,77 @@ var _ = Describe("Client", func() {
 				Expect(ips).To(ConsistOf(*address.Address))
 			})
 		})
-	})
 
-	When("the cluster does not exist", func() {
-		It("returns an error", func() {
-			nonExistentCluster := types.NamespacedName{
-				Name:      "does-not-exist",
-				Namespace: namespace,
-			}
-			_, err := resolver.GetIPs(ctx, nonExistentCluster)
-			Expect(k8serrors.IsNotFound(err)).To(BeTrue())
-		})
-	})
+		When("the router has no IPs yet", func() {
+			BeforeEach(func() {
+				network := tests.GetDefaultNetwork(networks, gcpProject)
+				router := tests.CreateEmptyRouter(routers, network, gcpProject, name)
 
-	When("the cluster doesn't have a router yet", func() {
-		BeforeEach(func() {
-			status := capg.GCPClusterStatus{
-				Ready:   true,
-				Network: capg.Network{},
-			}
-			tests.PatchClusterStatus(k8sClient, cluster, status)
-		})
+				status := capg.GCPClusterStatus{
+					Ready: true,
+					Network: capg.Network{
+						Router: router.SelfLink,
+					},
+				}
+				tests.PatchClusterStatus(k8sClient, cluster, status)
+			})
 
-		It("returns an error", func() {
-			_, err := resolver.GetIPs(ctx, clusterName)
-			Expect(err).To(MatchError(fmt.Sprintf(
-				"cluster %s/%s does not have router yet",
-				namespace, name,
-			)))
-		})
-	})
+			AfterEach(func() {
+				tests.DeleteRouter(routers, gcpProject, name)
+			})
 
-	When("the router does not exist", func() {
-		BeforeEach(func() {
-			status := capg.GCPClusterStatus{
-				Ready: true,
-				Network: capg.Network{
-					Router: to.StringP("https://example.com/does/not/exist-123"),
-				},
-			}
-			tests.PatchClusterStatus(k8sClient, cluster, status)
+			It("gets the NAT ips for the cluster", func() {
+				_, err := resolver.GetIPs(ctx, clusterName)
+				Expect(err).To(MatchError(ContainSubstring(
+					fmt.Sprintf("cluster %s/%s has no NAT IPs yet", namespace, name),
+				)))
+			})
 		})
 
-		It("returns an error", func() {
-			_, err := resolver.GetIPs(ctx, clusterName)
-			Expect(err).To(BeGoogleAPIErrorWithStatus(http.StatusNotFound))
+		When("the cluster does not exist", func() {
+			It("returns an error", func() {
+				nonExistentCluster := types.NamespacedName{
+					Name:      "does-not-exist",
+					Namespace: namespace,
+				}
+				_, err := resolver.GetIPs(ctx, nonExistentCluster)
+				Expect(k8serrors.IsNotFound(err)).To(BeTrue())
+			})
+		})
+
+		When("the cluster doesn't have a router yet", func() {
+			BeforeEach(func() {
+				status := capg.GCPClusterStatus{
+					Ready:   true,
+					Network: capg.Network{},
+				}
+				tests.PatchClusterStatus(k8sClient, cluster, status)
+			})
+
+			It("returns an error", func() {
+				_, err := resolver.GetIPs(ctx, clusterName)
+				Expect(err).To(MatchError(fmt.Sprintf(
+					"cluster %s/%s does not have router yet",
+					namespace, name,
+				)))
+			})
+		})
+
+		When("the router does not exist", func() {
+			BeforeEach(func() {
+				status := capg.GCPClusterStatus{
+					Ready: true,
+					Network: capg.Network{
+						Router: to.StringP("https://example.com/does/not/exist-123"),
+					},
+				}
+				tests.PatchClusterStatus(k8sClient, cluster, status)
+			})
+
+			It("returns an error", func() {
+				_, err := resolver.GetIPs(ctx, clusterName)
+				Expect(err).To(BeGoogleAPIErrorWithStatus(http.StatusNotFound))
+			})
 		})
 	})
 })

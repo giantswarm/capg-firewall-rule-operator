@@ -78,7 +78,7 @@ var _ = Describe("Firewalls", func() {
 		network = tests.GetDefaultNetwork(networks, gcpProject)
 		backendService := tests.CreateBackendService(backendServices, gcpProject, name)
 		address = tests.CreateIPAddress(addresses, gcpProject, name)
-		router := tests.CreateRouter(routers, address, network, gcpProject, name)
+		router := tests.CreateNATRouter(routers, address, network, gcpProject, name)
 
 		cluster = &capi.Cluster{
 			ObjectMeta: metav1.ObjectMeta{

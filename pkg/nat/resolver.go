@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	compute "cloud.google.com/go/compute/apiv1"
+	"google.golang.org/api/iterator"
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -48,21 +49,43 @@ func (r *IPResolver) GetIPs(ctx context.Context, managementCluster types.Namespa
 		return nil, errors.WithStack(err)
 	}
 
+	listAddressesReq := &computepb.ListAddressesRequest{
+		Project: cluster.Spec.Project,
+		Region:  cluster.Spec.Region,
+	}
+	addressIterator := r.addresses.List(ctx, listAddressesReq)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+
 	ips := []string{}
-	for _, natGateway := range router.Nats {
-		for _, natIP := range natGateway.NatIps {
-			getAddressReq := &computepb.GetAddressRequest{
-				Address: google.GetResourceName(natIP),
-				Project: cluster.Spec.Project,
-				Region:  cluster.Spec.Region,
-			}
-			address, err := r.addresses.Get(ctx, getAddressReq)
-			if err != nil {
-				return nil, errors.WithStack(err)
-			}
+	for {
+		address, err := addressIterator.Next()
+		if err == iterator.Done {
+			break
+		}
+
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+
+		if contains(address.Users, *router.SelfLink) {
 			ips = append(ips, *address.Address)
 		}
 	}
 
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("cluster %s/%s has no NAT IPs yet", cluster.Namespace, cluster.Name)
+	}
+
 	return ips, nil
+}
+
+func contains(slice []string, element string) bool {
+	for _, a := range slice {
+		if a == element {
+			return true
+		}
+	}
+	return false
 }
