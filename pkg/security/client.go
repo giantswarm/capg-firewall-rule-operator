@@ -24,6 +24,7 @@ const (
 
 	DefaultRuleDescription = "Default rule, higher priority overrides it"
 	DefaultRuleIPRanges    = "*"
+	DefaultRulePriority    = int32(math.MaxInt32)
 )
 
 type Policy struct {
@@ -91,18 +92,17 @@ func (c *Client) setSecurityPolicy(ctx context.Context, cluster *capg.GCPCluster
 func (c *Client) applySecurityPolicy(ctx context.Context, logger logr.Logger, cluster *capg.GCPCluster, policy Policy) (*computepb.SecurityPolicy, error) {
 	securityPolicy := toGCPSecurityPolicy(cluster, policy)
 
-	err := c.createSecurityPolicy(ctx, cluster, securityPolicy)
+	gcpPolicy, err := c.createSecurityPolicy(ctx, cluster, securityPolicy)
 	if google.HasHttpCode(err, http.StatusConflict) {
 		logger.Info("securityPolicy already exists. Updating")
-		err = c.updateSecurityPolicy(ctx, cluster, securityPolicy)
+		return c.updateSecurityPolicy(ctx, cluster, securityPolicy)
 	}
 
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 
-	// Getting the policy is necessary to populate the SelfLink
-	return c.getSecurityPolicy(ctx, cluster, policy.Name)
+	return gcpPolicy, nil
 }
 
 func (c *Client) DeletePolicy(ctx context.Context, cluster *capg.GCPCluster, name string) error {
@@ -133,7 +133,7 @@ func (c *Client) DeletePolicy(ctx context.Context, cluster *capg.GCPCluster, nam
 	return errors.WithStack(err)
 }
 
-func (c *Client) createSecurityPolicy(ctx context.Context, cluster *capg.GCPCluster, policy *computepb.SecurityPolicy) error {
+func (c *Client) createSecurityPolicy(ctx context.Context, cluster *capg.GCPCluster, policy *computepb.SecurityPolicy) (*computepb.SecurityPolicy, error) {
 	req := &computepb.InsertSecurityPolicyRequest{
 		Project:                cluster.Spec.Project,
 		SecurityPolicyResource: policy,
@@ -141,11 +141,16 @@ func (c *Client) createSecurityPolicy(ctx context.Context, cluster *capg.GCPClus
 
 	op, err := c.securityPolicies.Insert(ctx, req)
 	if err != nil {
-		return errors.WithStack(err)
+		return nil, errors.WithStack(err)
 	}
 
 	err = op.Wait(ctx)
-	return errors.WithStack(err)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	// Getting the policy is necessary to populate the SelfLink.
+	return c.getSecurityPolicy(ctx, cluster, *policy.Name)
 }
 
 func (c *Client) getSecurityPolicy(ctx context.Context, cluster *capg.GCPCluster, name string) (*computepb.SecurityPolicy, error) {
@@ -156,32 +161,124 @@ func (c *Client) getSecurityPolicy(ctx context.Context, cluster *capg.GCPCluster
 	return c.securityPolicies.Get(ctx, req)
 }
 
-func (c *Client) updateSecurityPolicy(ctx context.Context, cluster *capg.GCPCluster, policy *computepb.SecurityPolicy) error {
+func (c *Client) updateSecurityPolicy(ctx context.Context, cluster *capg.GCPCluster, policy *computepb.SecurityPolicy) (*computepb.SecurityPolicy, error) {
+	currentPolicy, err := c.getSecurityPolicy(ctx, cluster, *policy.Name)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	// There are three groups of rules - new rules, rules we want to update and
+	// rules that we want to delete. Rules that are in the current policy, but
+	// not in the new one should be deleted.
+	// We start of by marking all the rules in the current policy for deletion.
+	rulesToDelete := constructRulePriorityMap(currentPolicy.Rules)
 	for _, rule := range policy.Rules {
-		req := &computepb.PatchRuleSecurityPolicyRequest{
-			Priority:                   rule.Priority,
-			Project:                    cluster.Spec.Project,
-			SecurityPolicy:             *policy.Name,
-			SecurityPolicyRuleResource: rule,
-		}
-		op, err := c.securityPolicies.PatchRule(ctx, req)
-		if err != nil {
-			return errors.WithStack(err)
+		priority := *rule.Priority
+
+		// If both the new and old policy contain a rule with the same
+		// priority, then patch that rule and remove it from the rules that
+		// need to be deleted.
+		// If a rule is only in the new policy then it needs to be created.
+		// NOTE: We can't check for 404 when patching the rule. GCP will always
+		// return 400 if a rule doesn't exist. This also applies to `GetRule`
+		_, ok := rulesToDelete[priority]
+		if ok {
+			delete(rulesToDelete, priority)
+			err = c.patchRule(ctx, cluster, policy, rule)
+			if err != nil {
+				return nil, errors.WithStack(err)
+			}
+
+			continue
 		}
 
-		err = op.Wait(ctx)
+		err = c.createRule(ctx, cluster, policy, rule)
 		if err != nil {
-			return errors.WithStack(err)
+			return nil, errors.WithStack(err)
 		}
 	}
 
+	for rulePriority := range rulesToDelete {
+		// The default rule cannot be deleted
+		if rulePriority == DefaultRulePriority {
+			continue
+		}
+
+		err = c.deleteRule(ctx, cluster, policy, rulePriority)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+	}
+
+	selfLink := *currentPolicy.SelfLink
+	policy.SelfLink = &selfLink
+	return policy, nil
+}
+
+func (c *Client) createRule(ctx context.Context, cluster *capg.GCPCluster, policy *computepb.SecurityPolicy, rule *computepb.SecurityPolicyRule) error {
+	req := &computepb.AddRuleSecurityPolicyRequest{
+		Project:                    cluster.Spec.Project,
+		SecurityPolicy:             *policy.Name,
+		SecurityPolicyRuleResource: rule,
+	}
+	op, err := c.securityPolicies.AddRule(ctx, req)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	err = op.Wait(ctx)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
 	return nil
+}
+
+func (c *Client) patchRule(ctx context.Context, cluster *capg.GCPCluster, policy *computepb.SecurityPolicy, rule *computepb.SecurityPolicyRule) error {
+	req := &computepb.PatchRuleSecurityPolicyRequest{
+		Priority:                   rule.Priority,
+		Project:                    cluster.Spec.Project,
+		SecurityPolicy:             *policy.Name,
+		SecurityPolicyRuleResource: rule,
+	}
+	op, err := c.securityPolicies.PatchRule(ctx, req)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	err = op.Wait(ctx)
+	return errors.WithStack(err)
+}
+
+func (c *Client) deleteRule(ctx context.Context, cluster *capg.GCPCluster, policy *computepb.SecurityPolicy, rulePriority int32) error {
+	req := &computepb.RemoveRuleSecurityPolicyRequest{
+		Priority:       &rulePriority,
+		Project:        cluster.Spec.Project,
+		SecurityPolicy: *policy.Name,
+	}
+
+	op, err := c.securityPolicies.RemoveRule(ctx, req)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	err = op.Wait(ctx)
+	return errors.WithStack(err)
 }
 
 func (c *Client) getLogger(ctx context.Context, ruleName string) logr.Logger {
 	logger := log.FromContext(ctx)
 	logger = logger.WithName("security-client")
 	return logger.WithValues("name", ruleName)
+}
+
+func constructRulePriorityMap(rules []*computepb.SecurityPolicyRule) map[int32]struct{} {
+	priorityMap := map[int32]struct{}{}
+	for _, rule := range rules {
+		priorityMap[*rule.Priority] = struct{}{}
+	}
+
+	return priorityMap
 }
 
 func toGCPSecurityPolicy(cluster *capg.GCPCluster, policy Policy) *computepb.SecurityPolicy {
@@ -217,6 +314,6 @@ func getDefaultRule(defaultAction string) *computepb.SecurityPolicyRule {
 			},
 			VersionedExpr: to.StringP(SecurityPolicyVersionedExpr),
 		},
-		Priority: to.Int32P(math.MaxInt32),
+		Priority: to.Int32P(DefaultRulePriority),
 	}
 }

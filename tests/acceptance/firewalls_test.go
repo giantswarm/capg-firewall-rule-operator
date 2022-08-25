@@ -3,7 +3,6 @@ package acceptance_test
 import (
 	"context"
 	"fmt"
-	"math"
 	"net/http"
 	"time"
 
@@ -241,7 +240,7 @@ var _ = Describe("Firewalls", func() {
 		defaultRule := securityPolicy.Rules[3]
 		Expect(*defaultRule.Action).To(Equal(security.ActionDeny403))
 		Expect(*defaultRule.Description).To(Equal(security.DefaultRuleDescription))
-		Expect(*defaultRule.Priority).To(Equal(int32(math.MaxInt32)))
+		Expect(*defaultRule.Priority).To(Equal(security.DefaultRulePriority))
 		Expect(defaultRule.Match).NotTo(BeNil())
 		Expect(defaultRule.Match.Config).NotTo(BeNil())
 		Expect(defaultRule.Match.Config.SrcIpRanges).To(ConsistOf(security.DefaultRuleIPRanges))
