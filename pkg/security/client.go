@@ -24,7 +24,7 @@ const (
 
 	DefaultRuleDescription = "Default rule, higher priority overrides it"
 	DefaultRuleIPRanges    = "*"
-	DefaultRulePriority    = math.MaxInt32
+	DefaultRulePriority    = int32(math.MaxInt32)
 )
 
 type Policy struct {
