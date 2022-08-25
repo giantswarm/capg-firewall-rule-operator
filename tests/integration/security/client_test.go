@@ -2,7 +2,6 @@ package security_test
 
 import (
 	"context"
-	"math"
 	"net/http"
 	"time"
 
@@ -119,7 +118,7 @@ var _ = Describe("Client", func() {
 			defaultRule := securityPolicy.Rules[1]
 			Expect(*defaultRule.Action).To(Equal(security.ActionDeny403))
 			Expect(*defaultRule.Description).To(Equal(security.DefaultRuleDescription))
-			Expect(*defaultRule.Priority).To(Equal(int32(math.MaxInt32)))
+			Expect(*defaultRule.Priority).To(Equal(security.DefaultRulePriority))
 			Expect(defaultRule.Match).NotTo(BeNil())
 			Expect(defaultRule.Match.Config).NotTo(BeNil())
 			Expect(defaultRule.Match.Config.SrcIpRanges).To(ConsistOf(security.DefaultRuleIPRanges))
@@ -222,7 +221,7 @@ var _ = Describe("Client", func() {
 					defaultRule := securityPolicy.Rules[0]
 					Expect(*defaultRule.Action).To(Equal(security.ActionAllow))
 					Expect(*defaultRule.Description).To(Equal(security.DefaultRuleDescription))
-					Expect(*defaultRule.Priority).To(Equal(int32(math.MaxInt32)))
+					Expect(*defaultRule.Priority).To(Equal(security.DefaultRulePriority))
 				})
 			})
 		})

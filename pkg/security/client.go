@@ -24,6 +24,7 @@ const (
 
 	DefaultRuleDescription = "Default rule, higher priority overrides it"
 	DefaultRuleIPRanges    = "*"
+	DefaultRulePriority    = math.MaxInt32
 )
 
 type Policy struct {
@@ -198,8 +199,8 @@ func (c *Client) updateSecurityPolicy(ctx context.Context, cluster *capg.GCPClus
 	}
 
 	for rulePriority := range rulesToDelete {
-		// The default has priority MaxInt32 and cannot be deleted
-		if rulePriority == math.MaxInt32 {
+		// The default rule cannot be deleted
+		if rulePriority == DefaultRulePriority {
 			continue
 		}
 
@@ -313,6 +314,6 @@ func getDefaultRule(defaultAction string) *computepb.SecurityPolicyRule {
 			},
 			VersionedExpr: to.StringP(SecurityPolicyVersionedExpr),
 		},
-		Priority: to.Int32P(math.MaxInt32),
+		Priority: to.Int32P(DefaultRulePriority),
 	}
 }
