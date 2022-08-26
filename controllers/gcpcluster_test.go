@@ -333,7 +333,6 @@ var _ = Describe("GCPClusterReconciler", func() {
 		},
 		Entry("the annotation contains an invalid cidr", "128.0.0.0/24,random-string,192.168.0.0/24"),
 		Entry("the annotation is not a CSV list", "128.0.0.0/24 192.168.0.0/24"),
-		Entry("the annotation is an empty string", ""),
 	)
 
 	DescribeTable("when the apiserver allowlist annotation is invalid",
@@ -349,7 +348,6 @@ var _ = Describe("GCPClusterReconciler", func() {
 		},
 		Entry("the annotation contains an invalid cidr", "128.0.0.0/24,random-string,192.168.0.0/24"),
 		Entry("the annotation is not a CSV list", "128.0.0.0/24 192.168.0.0/24"),
-		Entry("the annotation is an empty string", ""),
 	)
 
 	When("the bastion allow list annotation is missing", func() {
@@ -361,7 +359,26 @@ var _ = Describe("GCPClusterReconciler", func() {
 			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
 		})
 
-		It("does not return an error", func() {
+		It("still applies the default rules", func() {
+			Expect(reconcileErr).NotTo(HaveOccurred())
+
+			Expect(firewallClient.ApplyRuleCallCount()).To(Equal(1))
+			_, _, actualRule := firewallClient.ApplyRuleArgsForCall(0)
+			Expect(actualRule.SourceRanges).To(ConsistOf("192.168.0.0/24", "172.158.0.0/24"))
+		})
+	})
+
+	When("the bastion allow list annotation is missing", func() {
+		BeforeEach(func() {
+			patchedCluster := gcpCluster.DeepCopy()
+			patchedCluster.Annotations = map[string]string{
+				firewall.AnnotationBastionAllowListSubnets: "",
+				security.AnnotationAPIAllowListSubnets:     "10.0.0.0/24",
+			}
+			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
+		})
+
+		It("still applies the default rules", func() {
 			Expect(reconcileErr).NotTo(HaveOccurred())
 
 			Expect(firewallClient.ApplyRuleCallCount()).To(Equal(1))
@@ -374,6 +391,27 @@ var _ = Describe("GCPClusterReconciler", func() {
 		BeforeEach(func() {
 			patchedCluster := gcpCluster.DeepCopy()
 			patchedCluster.Annotations = map[string]string{
+				firewall.AnnotationBastionAllowListSubnets: "10.0.0.0/24",
+			}
+			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
+		})
+
+		It("still applies the default rules", func() {
+			Expect(reconcileErr).NotTo(HaveOccurred())
+
+			Expect(securityPolicyClient.ApplyPolicyCallCount()).To(Equal(1))
+			_, _, actualPolicy := securityPolicyClient.ApplyPolicyArgsForCall(0)
+			Expect(actualPolicy.Rules).To(HaveLen(2))
+			Expect(actualPolicy.Rules[0].Description).To(Equal("allow MC NAT IPs"))
+			Expect(actualPolicy.Rules[1].Description).To(Equal("allow default IP ranges"))
+		})
+	})
+
+	When("the api allow list annotation is missing", func() {
+		BeforeEach(func() {
+			patchedCluster := gcpCluster.DeepCopy()
+			patchedCluster.Annotations = map[string]string{
+				security.AnnotationAPIAllowListSubnets:     "",
 				firewall.AnnotationBastionAllowListSubnets: "10.0.0.0/24",
 			}
 			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
