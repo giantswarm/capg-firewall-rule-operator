@@ -44,6 +44,15 @@ func GetEnvOrSkip(env string) string {
 	return value
 }
 
+func MapRulesByPriority(rules []*computepb.SecurityPolicyRule) map[int32]*computepb.SecurityPolicyRule {
+	mappedRules := map[int32]*computepb.SecurityPolicyRule{}
+	for _, r := range rules {
+		mappedRules[*r.Priority] = r
+	}
+
+	return mappedRules
+}
+
 func PatchClusterStatus(k8sClient client.Client, cluster *capg.GCPCluster, status capg.GCPClusterStatus) {
 	patchedCluster := cluster.DeepCopy()
 	patchedCluster.Status = status

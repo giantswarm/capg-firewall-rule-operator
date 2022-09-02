@@ -12,7 +12,7 @@ ensure_kind_cluster() {
   local cluster
   cluster="$1"
   if ! "$KIND" get clusters | grep -q "$cluster"; then
-    "$KIND" create cluster --name "$cluster" --wait 5m
+    "$KIND" create cluster --name "$cluster" --image kindest/node:v1.24.0 --wait 5m
   fi
   "$KIND" export kubeconfig --name "$cluster" --kubeconfig "$HOME/.kube/$cluster.yml"
 }

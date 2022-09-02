@@ -133,6 +133,7 @@ var _ = Describe("Firewalls", func() {
 			},
 			Spec: capg.GCPClusterSpec{
 				Project: gcpProject,
+				Region:  tests.TestRegion,
 			},
 		}
 		Expect(k8sClient.Create(ctx, workloadCluster)).To(Succeed())
@@ -142,6 +143,7 @@ var _ = Describe("Firewalls", func() {
 			Network: capg.Network{
 				SelfLink:                network.SelfLink,
 				APIServerBackendService: backendService.SelfLink,
+				Router:                  router.SelfLink,
 			},
 		}
 		tests.PatchClusterStatus(k8sClient, workloadCluster, wcStatus)
@@ -206,38 +208,49 @@ var _ = Describe("Firewalls", func() {
 		Expect(*securityPolicy.Name).To(Equal(securityPolicyName))
 		Expect(*securityPolicy.Description).To(Equal("allow IPs to connect to kubernetes api"))
 
+		rules := tests.MapRulesByPriority(securityPolicy.Rules)
+
 		By("creating the user specified rule in the policy")
-		rule := securityPolicy.Rules[0]
-		Expect(*rule.Action).To(Equal(security.ActionAllow))
-		Expect(*rule.Description).To(Equal("allow user specified ips to connect to kubernetes api"))
-		Expect(*rule.Priority).To(Equal(int32(0)))
-		Expect(rule.Match).NotTo(BeNil())
-		Expect(rule.Match.Config).NotTo(BeNil())
-		Expect(rule.Match.Config.SrcIpRanges).To(ConsistOf(
+		userRule := rules[0]
+		Expect(*userRule.Action).To(Equal(security.ActionAllow))
+		Expect(*userRule.Description).To(Equal("allow user specified ips to connect to kubernetes api"))
+		Expect(*userRule.Priority).To(Equal(int32(0)))
+		Expect(userRule.Match).NotTo(BeNil())
+		Expect(userRule.Match.Config).NotTo(BeNil())
+		Expect(userRule.Match.Config.SrcIpRanges).To(ConsistOf(
 			"10.0.0.0/24",
 			"172.158.0.0/24",
 		))
 
-		By("creating the defualt MC NAT IPs rule in the policy")
-		defaultNATRule := securityPolicy.Rules[1]
-		Expect(*defaultNATRule.Action).To(Equal(security.ActionAllow))
-		Expect(*defaultNATRule.Description).To(Equal("allow MC NAT IPs"))
-		Expect(*defaultNATRule.Priority).To(Equal(int32(1)))
-		Expect(defaultNATRule.Match).NotTo(BeNil())
-		Expect(defaultNATRule.Match.Config).NotTo(BeNil())
-		Expect(defaultNATRule.Match.Config.SrcIpRanges).To(ConsistOf(*address.Address))
+		By("creating the default MC NAT IPs rule in the policy")
+		defaultMCNATRule := rules[1]
+		Expect(*defaultMCNATRule.Action).To(Equal(security.ActionAllow))
+		Expect(*defaultMCNATRule.Description).To(Equal("allow MC NAT IPs"))
+		Expect(*defaultMCNATRule.Priority).To(Equal(int32(1)))
+		Expect(defaultMCNATRule.Match).NotTo(BeNil())
+		Expect(defaultMCNATRule.Match.Config).NotTo(BeNil())
+		Expect(defaultMCNATRule.Match.Config.SrcIpRanges).To(ConsistOf(*address.Address))
 
-		By("creating the defualt allow list rule in the policy")
-		defaultAllowListRule := securityPolicy.Rules[2]
+		By("creating the default WC NAT IPs rule in the policy")
+		defaultWCNATRule := rules[2]
+		Expect(*defaultWCNATRule.Action).To(Equal(security.ActionAllow))
+		Expect(*defaultWCNATRule.Description).To(Equal("allow WC NAT IPs"))
+		Expect(*defaultWCNATRule.Priority).To(Equal(int32(2)))
+		Expect(defaultWCNATRule.Match).NotTo(BeNil())
+		Expect(defaultWCNATRule.Match.Config).NotTo(BeNil())
+		Expect(defaultWCNATRule.Match.Config.SrcIpRanges).To(ConsistOf(*address.Address))
+
+		By("creating the default allow list rule in the policy")
+		defaultAllowListRule := rules[3]
 		Expect(*defaultAllowListRule.Action).To(Equal(security.ActionAllow))
 		Expect(*defaultAllowListRule.Description).To(Equal("allow default IP ranges"))
-		Expect(*defaultAllowListRule.Priority).To(Equal(int32(2)))
+		Expect(*defaultAllowListRule.Priority).To(Equal(int32(3)))
 		Expect(defaultAllowListRule.Match).NotTo(BeNil())
 		Expect(defaultAllowListRule.Match.Config).NotTo(BeNil())
 		Expect(defaultAllowListRule.Match.Config.SrcIpRanges).To(ConsistOf(defaultAPIAllowList))
 
 		By("creating the default policy behaviour rule")
-		defaultRule := securityPolicy.Rules[3]
+		defaultRule := rules[security.DefaultRulePriority]
 		Expect(*defaultRule.Action).To(Equal(security.ActionDeny403))
 		Expect(*defaultRule.Description).To(Equal(security.DefaultRuleDescription))
 		Expect(*defaultRule.Priority).To(Equal(security.DefaultRulePriority))

@@ -56,7 +56,7 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, cluster *capg.GCPClust
 		return errors.WithStack(err)
 	}
 
-	defaultRules, err := r.getDefaultRules(ctx)
+	defaultRules, err := r.getDefaultRules(ctx, cluster)
 	if err != nil {
 		return errors.WithStack(err)
 	}
@@ -99,8 +99,13 @@ func (r *PolicyReconciler) getUserRules(logger logr.Logger, cluster *capg.GCPClu
 	return rules, nil
 }
 
-func (r *PolicyReconciler) getDefaultRules(ctx context.Context) ([]PolicyRule, error) {
+func (r *PolicyReconciler) getDefaultRules(ctx context.Context, workloadCluster *capg.GCPCluster) ([]PolicyRule, error) {
 	mcNATIPs, err := r.ipResolver.GetIPs(ctx, r.managementCluster)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	wcNATIPs, err := r.ipResolver.GetIPs(ctx, toNamespacedName(workloadCluster))
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -112,15 +117,23 @@ func (r *PolicyReconciler) getDefaultRules(ctx context.Context) ([]PolicyRule, e
 		Priority:       1,
 	}
 
+	allowWCNATRule := PolicyRule{
+		Action:         ActionAllow,
+		Description:    "allow WC NAT IPs",
+		SourceIPRanges: wcNATIPs,
+		Priority:       2,
+	}
+
 	allowDefaultAllowlist := PolicyRule{
 		Action:         ActionAllow,
 		Description:    "allow default IP ranges",
 		SourceIPRanges: r.defaultAPIAllowList,
-		Priority:       2,
+		Priority:       3,
 	}
 
 	return []PolicyRule{
 		allowMCNATRule,
+		allowWCNATRule,
 		allowDefaultAllowlist,
 	}, nil
 }
@@ -128,6 +141,13 @@ func (r *PolicyReconciler) getDefaultRules(ctx context.Context) ([]PolicyRule, e
 func (r *PolicyReconciler) getLogger(ctx context.Context) logr.Logger {
 	logger := log.FromContext(ctx)
 	return logger.WithName("security-policy-reconciler")
+}
+
+func toNamespacedName(cluster *capg.GCPCluster) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      cluster.Name,
+		Namespace: cluster.Namespace,
+	}
 }
 
 func getAPISecurityPolicyName(clusterName string) string {
