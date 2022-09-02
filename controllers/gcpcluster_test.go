@@ -55,7 +55,8 @@ var _ = Describe("GCPClusterReconciler", func() {
 		securityPolicyClient = new(securityfakes.FakeSecurityPolicyClient)
 		ipResolver = new(securityfakes.FakeClusterNATIPResolver)
 
-		ipResolver.GetIPsReturns([]string{"10.1.1.24", "192.168.1.218"}, nil)
+		ipResolver.GetIPsReturnsOnCall(0, []string{"10.1.1.24", "192.168.1.218"}, nil)
+		ipResolver.GetIPsReturnsOnCall(1, []string{"10.236.0.0", "192.168.128.0"}, nil)
 
 		managementCluster = types.NamespacedName{
 			Name:      "the-mc-name",
@@ -159,7 +160,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 
 	It("applies the security policies for the kubernetes api", func() {
 		By("using the ip resolver to get the MC's NAT IPs")
-		Expect(ipResolver.GetIPsCallCount()).To(Equal(1))
+		Expect(ipResolver.GetIPsCallCount()).To(Equal(2))
 		_, clusterName := ipResolver.GetIPsArgsForCall(0)
 		Expect(clusterName).To(Equal(managementCluster))
 
@@ -191,12 +192,21 @@ var _ = Describe("GCPClusterReconciler", func() {
 			},
 			security.PolicyRule{
 				Action:      security.ActionAllow,
+				Description: "allow WC NAT IPs",
+				SourceIPRanges: []string{
+					"10.236.0.0",
+					"192.168.128.0",
+				},
+				Priority: 2,
+			},
+			security.PolicyRule{
+				Action:      security.ActionAllow,
 				Description: "allow default IP ranges",
 				SourceIPRanges: []string{
 					"10.128.0.0/24",
 					"10.230.0.0/24",
 				},
-				Priority: 2,
+				Priority: 3,
 			},
 		))
 	})
@@ -401,9 +411,10 @@ var _ = Describe("GCPClusterReconciler", func() {
 
 			Expect(securityPolicyClient.ApplyPolicyCallCount()).To(Equal(1))
 			_, _, actualPolicy := securityPolicyClient.ApplyPolicyArgsForCall(0)
-			Expect(actualPolicy.Rules).To(HaveLen(2))
+			Expect(actualPolicy.Rules).To(HaveLen(3))
 			Expect(actualPolicy.Rules[0].Description).To(Equal("allow MC NAT IPs"))
-			Expect(actualPolicy.Rules[1].Description).To(Equal("allow default IP ranges"))
+			Expect(actualPolicy.Rules[1].Description).To(Equal("allow WC NAT IPs"))
+			Expect(actualPolicy.Rules[2].Description).To(Equal("allow default IP ranges"))
 		})
 	})
 
@@ -422,9 +433,10 @@ var _ = Describe("GCPClusterReconciler", func() {
 
 			Expect(securityPolicyClient.ApplyPolicyCallCount()).To(Equal(1))
 			_, _, actualPolicy := securityPolicyClient.ApplyPolicyArgsForCall(0)
-			Expect(actualPolicy.Rules).To(HaveLen(2))
+			Expect(actualPolicy.Rules).To(HaveLen(3))
 			Expect(actualPolicy.Rules[0].Description).To(Equal("allow MC NAT IPs"))
-			Expect(actualPolicy.Rules[1].Description).To(Equal("allow default IP ranges"))
+			Expect(actualPolicy.Rules[1].Description).To(Equal("allow WC NAT IPs"))
+			Expect(actualPolicy.Rules[2].Description).To(Equal("allow default IP ranges"))
 		})
 	})
 
@@ -567,12 +579,24 @@ var _ = Describe("GCPClusterReconciler", func() {
 	})
 
 	When("the IP resolver fails", func() {
-		BeforeEach(func() {
-			ipResolver.GetIPsReturns([]string{}, errors.New("boom"))
+		When("getting the MCs NAT IPs", func() {
+			BeforeEach(func() {
+				ipResolver.GetIPsReturnsOnCall(0, []string{}, errors.New("boom MC"))
+			})
+
+			It("returns an error", func() {
+				Expect(reconcileErr).To(MatchError(ContainSubstring("boom MC")))
+			})
 		})
 
-		It("returns an error", func() {
-			Expect(reconcileErr).To(MatchError(ContainSubstring("boom")))
+		When("getting the WCs NAT IPs", func() {
+			BeforeEach(func() {
+				ipResolver.GetIPsReturnsOnCall(1, []string{}, errors.New("boom WC"))
+			})
+
+			It("returns an error", func() {
+				Expect(reconcileErr).To(MatchError(ContainSubstring("boom WC")))
+			})
 		})
 	})
 

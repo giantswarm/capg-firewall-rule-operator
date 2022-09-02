@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Allow WC's NAT IPs to communicate with the API through the Load Balancer
+
 ### Fixed
 
 - Manually list NAT IPs and filter instead of getting them from the Router.
