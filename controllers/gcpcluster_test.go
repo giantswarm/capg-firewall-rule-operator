@@ -116,6 +116,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 			Network: capg.Network{
 				SelfLink:                to.StringP("something"),
 				APIServerBackendService: to.StringP("something"),
+				Router:                  to.StringP("something"),
 			},
 		}
 		tests.PatchClusterStatus(k8sClient, gcpCluster, status)
@@ -217,6 +218,15 @@ var _ = Describe("GCPClusterReconciler", func() {
 			patchedCluster.Finalizers = []string{controllers.FinalizerFirewall}
 			Expect(k8sClient.Patch(ctx, patchedCluster, client.MergeFrom(gcpCluster))).To(Succeed())
 
+			status := capg.GCPClusterStatus{
+				Ready: true,
+				Network: capg.Network{
+					SelfLink:                to.StringP("something"),
+					APIServerBackendService: to.StringP(""),
+				},
+			}
+			tests.PatchClusterStatus(k8sClient, gcpCluster, status)
+
 			Expect(k8sClient.Delete(ctx, gcpCluster)).To(Succeed())
 
 			actualCluster := &capg.GCPCluster{}
@@ -265,13 +275,42 @@ var _ = Describe("GCPClusterReconciler", func() {
 						Network: capg.Network{
 							SelfLink:                to.StringP(""),
 							APIServerBackendService: to.StringP("something"),
+							Router:                  to.StringP("something"),
 						},
 					}
 					tests.PatchClusterStatus(k8sClient, gcpCluster, status)
 				})
 
-				It("removes the firewall rule", func() {
-					Expect(firewallClient.DeleteRuleCallCount()).To(Equal(1))
+				It("does not requeue the event", func() {
+					Expect(result.Requeue).To(BeFalse())
+					Expect(result.RequeueAfter).To(BeZero())
+					Expect(reconcileErr).NotTo(HaveOccurred())
+
+					Expect(firewallClient.DeleteRuleCallCount()).To(Equal(0))
+					Expect(firewallClient.ApplyRuleCallCount()).To(Equal(0))
+				})
+			})
+
+			When("the Status.Network.Router is empty", func() {
+				BeforeEach(func() {
+					status := capg.GCPClusterStatus{
+						Ready: true,
+						Network: capg.Network{
+							SelfLink:                to.StringP("something"),
+							APIServerBackendService: to.StringP("something"),
+							Router:                  to.StringP(""),
+						},
+					}
+					tests.PatchClusterStatus(k8sClient, gcpCluster, status)
+				})
+
+				It("does not requeue the event", func() {
+					Expect(result.Requeue).To(BeFalse())
+					Expect(result.RequeueAfter).To(BeZero())
+					Expect(reconcileErr).NotTo(HaveOccurred())
+
+					Expect(firewallClient.DeleteRuleCallCount()).To(Equal(0))
+					Expect(firewallClient.ApplyRuleCallCount()).To(Equal(0))
 				})
 			})
 
@@ -282,6 +321,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 						Network: capg.Network{
 							SelfLink:                to.StringP("something"),
 							APIServerBackendService: to.StringP(""),
+							Router:                  to.StringP("something"),
 						},
 					}
 					tests.PatchClusterStatus(k8sClient, gcpCluster, status)
@@ -289,6 +329,10 @@ var _ = Describe("GCPClusterReconciler", func() {
 
 				It("removes the firewall rule", func() {
 					Expect(firewallClient.DeleteRuleCallCount()).To(Equal(1))
+				})
+
+				It("does not return an error", func() {
+					Expect(reconcileErr).NotTo(HaveOccurred())
 				})
 			})
 		})
@@ -500,6 +544,7 @@ var _ = Describe("GCPClusterReconciler", func() {
 					Network: capg.Network{
 						SelfLink:                to.StringP(""),
 						APIServerBackendService: to.StringP("something"),
+						Router:                  to.StringP("something"),
 					},
 				}
 				tests.PatchClusterStatus(k8sClient, gcpCluster, status)
@@ -522,6 +567,30 @@ var _ = Describe("GCPClusterReconciler", func() {
 					Network: capg.Network{
 						SelfLink:                to.StringP("something"),
 						APIServerBackendService: to.StringP(""),
+						Router:                  to.StringP("something"),
+					},
+				}
+				tests.PatchClusterStatus(k8sClient, gcpCluster, status)
+			})
+
+			It("does not requeue the event", func() {
+				Expect(result.Requeue).To(BeFalse())
+				Expect(result.RequeueAfter).To(BeZero())
+				Expect(reconcileErr).NotTo(HaveOccurred())
+
+				Expect(firewallClient.DeleteRuleCallCount()).To(Equal(0))
+				Expect(firewallClient.ApplyRuleCallCount()).To(Equal(0))
+			})
+		})
+
+		When("the Status.Network.Router is empty", func() {
+			BeforeEach(func() {
+				status := capg.GCPClusterStatus{
+					Ready: true,
+					Network: capg.Network{
+						SelfLink:                to.StringP("something"),
+						APIServerBackendService: to.StringP("something"),
+						Router:                  to.StringP(""),
 					},
 				}
 				tests.PatchClusterStatus(k8sClient, gcpCluster, status)
