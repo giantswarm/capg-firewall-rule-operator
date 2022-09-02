@@ -83,7 +83,7 @@ func (r *GCPClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if !gcpCluster.DeletionTimestamp.IsZero() {
-		result, err := r.reconcileDelete(ctx, gcpCluster)
+		result, err := r.reconcileDelete(ctx, logger, gcpCluster)
 		if err != nil {
 			return ctrl.Result{}, errors.WithStack(err)
 		}
@@ -110,6 +110,11 @@ func (r *GCPClusterReconciler) reconcileNormal(ctx context.Context, logger logr.
 		return ctrl.Result{}, nil
 	}
 
+	if google.IsNilOrEmpty(gcpCluster.Status.Network.Router) {
+		logger.Info("GCP Cluster does not have backend service set yet")
+		return ctrl.Result{}, nil
+	}
+
 	err := r.client.AddFinalizer(ctx, gcpCluster, FinalizerFirewall)
 	if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
@@ -128,7 +133,12 @@ func (r *GCPClusterReconciler) reconcileNormal(ctx context.Context, logger logr.
 	return ctrl.Result{}, nil
 }
 
-func (r *GCPClusterReconciler) reconcileDelete(ctx context.Context, gcpCluster *capg.GCPCluster) (ctrl.Result, error) {
+func (r *GCPClusterReconciler) reconcileDelete(ctx context.Context, logger logr.Logger, gcpCluster *capg.GCPCluster) (ctrl.Result, error) {
+	if !google.IsNilOrEmpty(gcpCluster.Status.Network.APIServerBackendService) {
+		logger.Info("GCP Cluster backend service not deleted yet")
+		return ctrl.Result{}, nil
+	}
+
 	err := r.firewallRuleReconciler.ReconcileDelete(ctx, gcpCluster)
 	if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
