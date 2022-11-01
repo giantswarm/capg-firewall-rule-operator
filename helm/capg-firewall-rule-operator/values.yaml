@@ -1,5 +1,3 @@
-gcp:
-  credentials: credentials
 project:
   branch: "[[ .Branch ]]"
   commit: "[[ .SHA ]]"
@@ -19,3 +17,5 @@ pod:
     id: 1000
   group:
     id: 1000
+
+gcpProject: ""
