@@ -18,7 +18,9 @@ spec:
       annotations:
         releaseRevision: {{ .Release.Revision | quote }}
       labels:
+    {{- if not .Values.gcp.credentials }}
         giantswarm.io/gcp-workload-identity: enabled
+    {{- end }}
     {{- include "labels.selector" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "resource.default.name"  . }}
@@ -30,6 +32,11 @@ spec:
           image: "{{ .Values.registry.domain }}/{{ .Values.image.name }}:{{ .Values.image.tag }}"
           command:
             - /manager
+          {{- if .Values.gcp.credentials }}
+          env:
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /home/.gcp/credentials
+          {{- end }}
           args:
             - "--management-cluster-name"
             - {{ .Values.managementClusterName }}
@@ -50,3 +57,9 @@ spec:
             - mountPath: /home/.gcp
               name: credentials
       terminationGracePeriodSeconds: 10
+      {{- if .Values.gcp.credentials }}
+      volumes:
+        - name: credentials
+          secret:
+            secretName: {{ include "resource.default.name" . }}-gcp-credentials
+      {{- end }}
